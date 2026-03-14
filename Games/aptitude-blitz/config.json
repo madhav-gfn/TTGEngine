@@ -1,0 +1,149 @@
+{
+  "gameId": "aptitude-blitz-v1",
+  "gameType": "MCQ",
+  "title": "Aptitude Blitz",
+  "description": "Race against the clock to solve quantitative and logical reasoning questions. Negative marking is configured from JSON.",
+  "version": "1.0.0",
+  "difficulty": "medium",
+  "levels": [
+    {
+      "levelNumber": 1,
+      "timeLimit": 120,
+      "bonusMultiplier": 1,
+      "shuffleQuestions": true,
+      "shuffleOptions": true,
+      "negativeMarking": true,
+      "questions": [
+        {
+          "id": "q1",
+          "question": "If a train travels 360 km in 4 hours, what is its speed in km/h?",
+          "options": [
+            { "id": "a", "text": "80 km/h" },
+            { "id": "b", "text": "90 km/h" },
+            { "id": "c", "text": "100 km/h" },
+            { "id": "d", "text": "70 km/h" }
+          ],
+          "correctOptionId": "b",
+          "explanation": "Speed = distance / time, so 360 / 4 = 90 km/h.",
+          "category": "arithmetic",
+          "difficulty": "easy"
+        },
+        {
+          "id": "q2",
+          "question": "What comes next in the series 2, 6, 18, 54?",
+          "options": [
+            { "id": "a", "text": "108" },
+            { "id": "b", "text": "162" },
+            { "id": "c", "text": "148" },
+            { "id": "d", "text": "216" }
+          ],
+          "correctOptionId": "b",
+          "explanation": "Each number is multiplied by 3.",
+          "category": "series",
+          "difficulty": "easy"
+        },
+        {
+          "id": "q3",
+          "question": "A shopkeeper gives a 20 percent discount and still makes a 25 percent profit. If the cost price is INR 400, what is the marked price?",
+          "options": [
+            { "id": "a", "text": "INR 500" },
+            { "id": "b", "text": "INR 600" },
+            { "id": "c", "text": "INR 625" },
+            { "id": "d", "text": "INR 650" }
+          ],
+          "correctOptionId": "c",
+          "explanation": "Selling price becomes 500 after profit. If 80 percent of marked price is 500, marked price is 625.",
+          "category": "profit-loss",
+          "difficulty": "medium"
+        }
+      ]
+    },
+    {
+      "levelNumber": 2,
+      "timeLimit": 150,
+      "bonusMultiplier": 1.5,
+      "shuffleQuestions": true,
+      "shuffleOptions": true,
+      "negativeMarking": true,
+      "questions": [
+        {
+          "id": "q4",
+          "question": "How many degrees does the minute hand move in 20 minutes?",
+          "options": [
+            { "id": "a", "text": "60" },
+            { "id": "b", "text": "90" },
+            { "id": "c", "text": "120" },
+            { "id": "d", "text": "180" }
+          ],
+          "correctOptionId": "c",
+          "explanation": "The minute hand moves 360 degrees in 60 minutes, so it moves 120 degrees in 20 minutes.",
+          "category": "clock",
+          "difficulty": "easy"
+        },
+        {
+          "id": "q5",
+          "question": "If 5 workers can finish a task in 12 days, how many days will 10 workers take, assuming equal efficiency?",
+          "options": [
+            { "id": "a", "text": "5" },
+            { "id": "b", "text": "6" },
+            { "id": "c", "text": "8" },
+            { "id": "d", "text": "10" }
+          ],
+          "correctOptionId": "b",
+          "explanation": "Work is constant, so doubling workers halves the time.",
+          "category": "time-work",
+          "difficulty": "easy"
+        },
+        {
+          "id": "q6",
+          "question": "Which number should replace the blank: 11, 14, 19, 26, __?",
+          "options": [
+            { "id": "a", "text": "34" },
+            { "id": "b", "text": "35" },
+            { "id": "c", "text": "37" },
+            { "id": "d", "text": "39" }
+          ],
+          "correctOptionId": "b",
+          "explanation": "The differences are 3, 5, 7, so the next difference is 9.",
+          "category": "series",
+          "difficulty": "medium"
+        }
+      ]
+    }
+  ],
+  "timerConfig": {
+    "type": "countdown",
+    "duration": 120,
+    "warningAt": [30, 10, 5]
+  },
+  "scoringConfig": {
+    "basePoints": 50,
+    "bonusMultiplier": 1,
+    "penaltyPerHint": 0,
+    "penaltyPerWrong": 15,
+    "timeBonusFormula": "linear",
+    "timeBonusMultiplier": 1
+  },
+  "uiConfig": {
+    "theme": "light",
+    "primaryColor": "#1d4ed8",
+    "secondaryColor": "#16a34a",
+    "iconSet": "lucide",
+    "layout": "centered",
+    "showTimer": true,
+    "showScore": true,
+    "showProgress": true
+  },
+  "metadata": {
+    "author": "TaPTaP Engine Team",
+    "createdAt": "2026-03-07T00:00:00Z",
+    "updatedAt": "2026-03-14T00:00:00Z",
+    "tags": ["aptitude", "quantitative", "reasoning", "mcq"],
+    "targetSkill": "Quantitative Aptitude",
+    "estimatedPlayTime": 8
+  },
+  "apiConfig": {
+    "leaderboardEndpoint": "/api/leaderboard/aptitude-blitz-v1",
+    "scoreSubmitEndpoint": "/api/score"
+  }
+}

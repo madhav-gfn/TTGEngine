@@ -1,0 +1,1 @@
+export { WordLevelSchema } from "./masterSchema";

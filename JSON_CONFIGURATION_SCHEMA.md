@@ -1,4 +1,4 @@
-﻿# DELIVERABLE 2: JSON CONFIGURATION SCHEMA
+# DELIVERABLE 2: JSON CONFIGURATION SCHEMA
 
 ## TaPTaP Game Engine - Configuration Schema Specification
 

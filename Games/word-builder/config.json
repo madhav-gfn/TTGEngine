@@ -1,0 +1,109 @@
+{
+  "gameId": "word-builder-v1",
+  "gameType": "WORD",
+  "title": "Word Builder",
+  "description": "Create as many valid words as you can from the given letters. Build vocabulary and verbal reasoning through runtime-configured levels.",
+  "version": "1.0.0",
+  "difficulty": "medium",
+  "levels": [
+    {
+      "levelNumber": 1,
+      "timeLimit": 90,
+      "bonusMultiplier": 1,
+      "availableLetters": ["T", "A", "P", "E", "R", "S"],
+      "validWords": [
+        { "word": "TAPE", "points": 10, "difficulty": "easy" },
+        { "word": "RATE", "points": 10, "difficulty": "easy" },
+        { "word": "STEP", "points": 10, "difficulty": "easy" },
+        { "word": "PEAR", "points": 10, "difficulty": "easy" },
+        { "word": "TAPES", "points": 20, "difficulty": "medium" },
+        { "word": "RATES", "points": 20, "difficulty": "medium" },
+        { "word": "PASTER", "points": 40, "difficulty": "hard" },
+        { "word": "REPAST", "points": 40, "difficulty": "hard" }
+      ],
+      "bonusWords": [
+        { "word": "TAPERS", "points": 50, "difficulty": "hard" },
+        { "word": "TRAPES", "points": 50, "difficulty": "hard" }
+      ],
+      "minWordLength": 3,
+      "maxWordLength": 6
+    },
+    {
+      "levelNumber": 2,
+      "timeLimit": 120,
+      "bonusMultiplier": 1.5,
+      "availableLetters": ["B", "R", "A", "I", "N", "S", "T", "O"],
+      "validWords": [
+        { "word": "BRAIN", "points": 20, "difficulty": "easy" },
+        { "word": "TRAIN", "points": 20, "difficulty": "easy" },
+        { "word": "STAIN", "points": 20, "difficulty": "easy" },
+        { "word": "BOAST", "points": 25, "difficulty": "medium" },
+        { "word": "STRAIN", "points": 30, "difficulty": "medium" },
+        { "word": "RATION", "points": 30, "difficulty": "medium" },
+        { "word": "RATIONS", "points": 50, "difficulty": "hard" }
+      ],
+      "bonusWords": [
+        { "word": "BRAINS", "points": 35, "difficulty": "medium" },
+        { "word": "TRAINS", "points": 35, "difficulty": "medium" }
+      ],
+      "minWordLength": 4,
+      "maxWordLength": 8
+    },
+    {
+      "levelNumber": 3,
+      "timeLimit": 150,
+      "bonusMultiplier": 2,
+      "availableLetters": ["C", "O", "M", "P", "U", "T", "E", "R", "S"],
+      "validWords": [
+        { "word": "COMPUTE", "points": 35, "difficulty": "medium" },
+        { "word": "COMETS", "points": 30, "difficulty": "medium" },
+        { "word": "SCOPE", "points": 20, "difficulty": "easy" },
+        { "word": "TEMPO", "points": 20, "difficulty": "easy" },
+        { "word": "STUMP", "points": 20, "difficulty": "easy" },
+        { "word": "SPROUT", "points": 25, "difficulty": "medium" },
+        { "word": "COMPUTER", "points": 60, "difficulty": "hard" },
+        { "word": "COMPUTERS", "points": 80, "difficulty": "hard" }
+      ],
+      "bonusWords": [
+        { "word": "COMPUTES", "points": 70, "difficulty": "hard" }
+      ],
+      "minWordLength": 4,
+      "maxWordLength": 9
+    }
+  ],
+  "timerConfig": {
+    "type": "countdown",
+    "duration": 90,
+    "warningAt": [20, 10, 5]
+  },
+  "scoringConfig": {
+    "basePoints": 10,
+    "bonusMultiplier": 1.5,
+    "penaltyPerHint": 30,
+    "penaltyPerWrong": 0,
+    "timeBonusFormula": "linear",
+    "timeBonusMultiplier": 1
+  },
+  "uiConfig": {
+    "theme": "light",
+    "primaryColor": "#7c2d12",
+    "secondaryColor": "#c2410c",
+    "iconSet": "lucide",
+    "layout": "centered",
+    "showTimer": true,
+    "showScore": true,
+    "showProgress": true
+  },
+  "metadata": {
+    "author": "TaPTaP Engine Team",
+    "createdAt": "2026-03-07T00:00:00Z",
+    "updatedAt": "2026-03-14T00:00:00Z",
+    "tags": ["vocabulary", "english", "words", "verbal"],
+    "targetSkill": "Verbal Ability",
+    "estimatedPlayTime": 10
+  },
+  "apiConfig": {
+    "leaderboardEndpoint": "/api/leaderboard/word-builder-v1",
+    "scoreSubmitEndpoint": "/api/score"
+  }
+}

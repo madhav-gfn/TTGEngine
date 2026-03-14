@@ -1,0 +1,17 @@
+{
+  "name": "taptap-engine",
+  "private": true,
+  "version": "1.0.0",
+  "workspaces": [
+    "Engine/Frontend",
+    "Engine/Backend"
+  ],
+  "scripts": {
+    "dev:frontend": "npm --workspace Engine/Frontend run dev",
+    "dev:backend": "npm --workspace Engine/Backend run dev",
+    "build:frontend": "npm --workspace Engine/Frontend run build",
+    "build:backend": "npm --workspace Engine/Backend run build",
+    "build": "npm run build:frontend && npm run build:backend",
+    "test": "npm --workspace Engine/Frontend run test"
+  }
+}
