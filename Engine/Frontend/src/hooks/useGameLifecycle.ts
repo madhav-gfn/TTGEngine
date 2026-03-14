@@ -282,6 +282,7 @@ export function useGameLifecycle() {
     eventBus.emit("level:completed", { level: levelNumber, result, score: levelScore });
 
     if (store.currentLevelIndex >= config.levels.length - 1) {
+      transitionTo("LEVEL_END");
       transitionTo("GAME_OVER");
       void finalizeGame(config);
       return;

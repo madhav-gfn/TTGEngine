@@ -1,4 +1,4 @@
-﻿import { ApiError, getJson, postJson } from "@/lib/api";
+import { ApiError, getJson, postJson } from "@/lib/api";
 import { STORAGE_KEYS } from "@/lib/constants";
 import type {
   LeaderboardEntry,
@@ -12,9 +12,21 @@ import type {
 export class LeaderboardConnector {
   async submitScore(submission: ScoreSubmission): Promise<SubmissionResult> {
     try {
-      const response = await postJson<SubmissionResult>("/api/score", submission);
+      const response = await postJson<{
+        success: boolean;
+        data: {
+          submissionId: string;
+          rank: number;
+          totalPlayers: number;
+          personalBest: boolean;
+        };
+      }>("/api/score", submission);
       this.flushQueue().catch(() => undefined);
-      return response;
+      return {
+        success: true,
+        pendingSync: false,
+        data: response.data,
+      };
     } catch (error) {
       if (error instanceof ApiError && error.status >= 400 && error.status < 500) {
         const payload = error.data as {

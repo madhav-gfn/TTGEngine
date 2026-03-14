@@ -42,7 +42,7 @@ export function ResultsScreen({ score, leaderboard, onReplay, onBack }: ResultsS
       </div>
       <div className="results-card results-full">
         <h3>Leaderboard</h3>
-        <LeaderboardView entries={leaderboard} />
+        <LeaderboardView entries={leaderboard ?? []} />
       </div>
     </section>
   );

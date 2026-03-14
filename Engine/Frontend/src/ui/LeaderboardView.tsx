@@ -6,8 +6,12 @@ interface LeaderboardViewProps {
 }
 
 export function LeaderboardView({ entries }: LeaderboardViewProps) {
-  if (entries.length === 0) {
-    return <p className="empty-state">No leaderboard entries yet. Be the first one on the board.</p>;
+  if (!entries || entries.length === 0) {
+    return (
+      <p className="empty-state">
+        No leaderboard entries available. Play a game and submit your score to appear here.
+      </p>
+    );
   }
 
   return (
