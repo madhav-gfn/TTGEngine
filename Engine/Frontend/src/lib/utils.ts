@@ -1,4 +1,4 @@
-import type { GameConfig, GridLevelConfig, LeaderboardEntry, TimerConfig } from "@/core/types";
+import type { GameConfig, GridLevelConfig, LeaderboardEntry, ThemeMode, TimerConfig } from "@/core/types";
 import { TimerType } from "@/core/types";
 import { STORAGE_KEYS } from "./constants";
 
@@ -60,6 +60,27 @@ export function getLevelTimerConfig(config: GameConfig, levelIndex: number): Tim
 
 export function getLevelMultiplier(config: GameConfig, levelIndex: number): number {
   return config.levels[levelIndex]?.bonusMultiplier ?? config.scoringConfig.bonusMultiplier ?? 1;
+}
+
+export function isWrongPenaltyEnabledForLevel(config: GameConfig, levelIndex: number): boolean {
+  const level = config.levels[levelIndex];
+  if ("questions" in level) {
+    return level.negativeMarking;
+  }
+
+  return true;
+}
+
+export function resolveThemeMode(theme: ThemeMode): "light" | "dark" {
+  if (theme === "system") {
+    if (typeof window === "undefined") {
+      return "light";
+    }
+
+    return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  }
+
+  return theme;
 }
 
 export function serializeCellKey(row: number, col: number): string {

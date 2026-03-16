@@ -1,6 +1,7 @@
 import { ApiError, getJson, postJson } from "@/lib/api";
-import { STORAGE_KEYS } from "@/lib/constants";
+import { API_ENDPOINTS, STORAGE_KEYS } from "@/lib/constants";
 import type {
+  GameConfig,
   LeaderboardEntry,
   LeaderboardQuery,
   LeaderboardResponse,
@@ -9,19 +10,30 @@ import type {
   UserRank,
 } from "./types";
 
+function buildLeaderboardEndpoint(gameId: string, config?: Pick<GameConfig, "apiConfig">): string {
+  return config?.apiConfig?.leaderboardEndpoint ?? `${API_ENDPOINTS.leaderboard}/${gameId}`;
+}
+
+function buildScoreEndpoint(config?: Pick<GameConfig, "apiConfig">): string {
+  return config?.apiConfig?.scoreSubmitEndpoint ?? API_ENDPOINTS.score;
+}
+
+interface PendingSubmission {
+  submission: ScoreSubmission;
+  scoreEndpoint: string;
+}
+
 export class LeaderboardConnector {
-  async submitScore(submission: ScoreSubmission): Promise<SubmissionResult> {
+  async submitScore(
+    submission: ScoreSubmission,
+    config?: Pick<GameConfig, "apiConfig">,
+  ): Promise<SubmissionResult> {
     try {
       const response = await postJson<{
         success: boolean;
-        data: {
-          submissionId: string;
-          rank: number;
-          totalPlayers: number;
-          personalBest: boolean;
-        };
-      }>("/api/score", submission);
-      this.flushQueue().catch(() => undefined);
+        data: SubmissionResult["data"];
+      }>(buildScoreEndpoint(config), submission);
+      this.flushQueue(config).catch(() => undefined);
       return {
         success: true,
         pendingSync: false,
@@ -45,7 +57,10 @@ export class LeaderboardConnector {
       }
 
       const queue = this.getQueue();
-      queue.push(submission);
+      queue.push({
+        submission,
+        scoreEndpoint: buildScoreEndpoint(config),
+      });
       localStorage.setItem(STORAGE_KEYS.pendingScores, JSON.stringify(queue));
       return {
         success: false,
@@ -58,22 +73,22 @@ export class LeaderboardConnector {
     }
   }
 
-  async flushQueue(): Promise<void> {
+  async flushQueue(config?: Pick<GameConfig, "apiConfig">): Promise<void> {
     const queue = this.getQueue();
     if (queue.length === 0) {
       return;
     }
 
-    const remaining: ScoreSubmission[] = [];
+    const remaining: PendingSubmission[] = [];
 
-    for (const submission of queue) {
+    for (const queued of queue) {
       try {
-        await postJson("/api/score", submission);
+        await postJson(config ? buildScoreEndpoint(config) : queued.scoreEndpoint, queued.submission);
       } catch (error) {
         if (error instanceof ApiError && error.status >= 400 && error.status < 500) {
           continue;
         }
-        remaining.push(submission);
+        remaining.push(queued);
       }
     }
 
@@ -83,6 +98,7 @@ export class LeaderboardConnector {
   async getLeaderboard(
     gameId: string,
     options: LeaderboardQuery = {},
+    config?: Pick<GameConfig, "apiConfig">,
   ): Promise<LeaderboardEntry[]> {
     const searchParams = new URLSearchParams();
     Object.entries(options).forEach(([key, value]) => {
@@ -92,13 +108,17 @@ export class LeaderboardConnector {
     });
 
     const response = await getJson<{ success: boolean; data: LeaderboardResponse }>(
-      `/api/leaderboard/${gameId}?${searchParams.toString()}`,
+      `${buildLeaderboardEndpoint(gameId, config)}?${searchParams.toString()}`,
     );
     return response.data.leaderboard;
   }
 
-  async getUserRank(gameId: string, userId: string): Promise<UserRank> {
-    const leaderboard = await this.getLeaderboard(gameId, { limit: 100, offset: 0, period: "all" });
+  async getUserRank(
+    gameId: string,
+    userId: string,
+    config?: Pick<GameConfig, "apiConfig">,
+  ): Promise<UserRank> {
+    const leaderboard = await this.getLeaderboard(gameId, { limit: 100, offset: 0, period: "all" }, config);
     const entry = leaderboard.find((row) => row.userId === userId);
     return {
       rank: entry?.rank ?? null,
@@ -106,10 +126,27 @@ export class LeaderboardConnector {
     };
   }
 
-  private getQueue(): ScoreSubmission[] {
+  async getHealth(): Promise<"ok"> {
+    const response = await getJson<{ success: boolean; data: { status: "ok" } }>(API_ENDPOINTS.health);
+    return response.data.status;
+  }
+
+  private getQueue(): PendingSubmission[] {
     try {
       const raw = localStorage.getItem(STORAGE_KEYS.pendingScores);
-      return raw ? (JSON.parse(raw) as ScoreSubmission[]) : [];
+      if (!raw) {
+        return [];
+      }
+
+      const parsed = JSON.parse(raw) as Array<PendingSubmission | ScoreSubmission>;
+      return parsed.map((entry) =>
+        "submission" in entry
+          ? entry
+          : {
+            submission: entry,
+            scoreEndpoint: API_ENDPOINTS.score,
+          }
+      );
     } catch {
       return [];
     }

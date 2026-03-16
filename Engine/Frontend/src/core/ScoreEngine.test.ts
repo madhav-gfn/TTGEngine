@@ -28,4 +28,25 @@ describe("ScoreEngine", () => {
     expect(score.wrongPenalty).toBe(2);
     expect(score.levelTotal).toBe(73);
   });
+
+  it("skips wrong-answer penalties when a level disables negative marking", () => {
+    const engine = new ScoreEngine();
+    engine.initialize({
+      basePoints: 10,
+      bonusMultiplier: 1,
+      penaltyPerHint: 0,
+      penaltyPerWrong: 20,
+      timeBonusFormula: TimeBonusFormula.NONE,
+      timeBonusMultiplier: 1,
+    });
+
+    engine.startLevel(1, 1, { wrongPenaltyEnabled: false });
+    engine.recordAction({ type: "correct", points: 10 });
+    engine.recordAction({ type: "wrong" });
+
+    const score = engine.calculateLevelScore(15_000, 0);
+
+    expect(score.wrongPenalty).toBe(0);
+    expect(score.levelTotal).toBe(10);
+  });
 });

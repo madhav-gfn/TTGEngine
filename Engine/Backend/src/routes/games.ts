@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { loadGameConfigById, loadGameManifest } from "../lib/gameConfigs.js";
+import { loadGameManifest, loadRawGameConfigById } from "../lib/gameConfigs.js";
 
 export const gamesRouter = Router();
 
@@ -8,7 +8,7 @@ gamesRouter.get("/", (_req, res) => {
 });
 
 gamesRouter.get("/:gameId", (req, res) => {
-  const config = loadGameConfigById(req.params.gameId);
+  const config = loadRawGameConfigById(req.params.gameId);
 
   if (!config) {
     res.status(404).json({

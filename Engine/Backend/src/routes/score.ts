@@ -34,6 +34,7 @@ scoreRouter.post("/", scoreRateLimit, validateScoreSubmission, (req, res) => {
       rank: rank ?? 0,
       totalPlayers,
       personalBest: inserted.personalBest,
+      leaderboardEligible: isValid,
     },
   });
 });

@@ -3,6 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "workspaces": [
+    "Engine/Contracts",
     "Engine/Frontend",
     "Engine/Backend"
   ],

@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
-import type { GameRendererProps, WordEntry, WordLevelConfig } from "@/core/types";
+import type { GameRendererProps, InteractionCommand, WordEntry, WordLevelConfig } from "@/core/types";
+import { useInputCapture } from "@/hooks/useInputCapture";
 
 function canSpell(word: string, letters: string[]): boolean {
   const counts = new Map<string, number>();
@@ -36,13 +37,25 @@ export function WordRenderer({ config, level, levelIndex, onAction, onComplete, 
     setHint(null);
   }, [config.gameId, levelIndex, wordLevel]);
 
-  function submitWord(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  function completeIfFinished(nextFound: string[]): void {
+    const completedWords = wordLevel.validWords.filter((entry) => nextFound.includes(entry.word));
+    if (completedWords.length === wordLevel.validWords.length) {
+      onComplete({
+        completed: true,
+        correctActions: 0,
+        wrongActions: 0,
+        totalActions: 0,
+        hintsUsed: 0,
+        metadata: { foundWords: nextFound },
+      });
+    }
+  }
+
+  function submitCandidate(candidate: string): void {
     if (isPaused) {
       return;
     }
 
-    const candidate = input.trim().toUpperCase();
     if (!candidate) {
       return;
     }
@@ -76,18 +89,12 @@ export function WordRenderer({ config, level, levelIndex, onAction, onComplete, 
     onAction({ type: "correct", points: match.points });
     setInput("");
     setStatus(`${candidate} locked in for ${match.points} points.`);
+    completeIfFinished(nextFound);
+  }
 
-    const completedWords = wordLevel.validWords.filter((entry) => nextFound.includes(entry.word));
-    if (completedWords.length === wordLevel.validWords.length) {
-      onComplete({
-        completed: true,
-        correctActions: 0,
-        wrongActions: 0,
-        totalActions: 0,
-        hintsUsed: 0,
-        metadata: { foundWords: nextFound },
-      });
-    }
+  function submitWord(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    submitCandidate(input.trim().toUpperCase());
   }
 
   function requestHint() {
@@ -105,8 +112,35 @@ export function WordRenderer({ config, level, levelIndex, onAction, onComplete, 
     onAction({ type: "hint" });
   }
 
+  function handleCommand(command: InteractionCommand): void {
+    if (isPaused) {
+      return;
+    }
+
+    if (command.type === "type" && /^[A-Za-z]$/.test(command.value)) {
+      setInput((current) => `${current}${command.value.toUpperCase()}`);
+      return;
+    }
+
+    if (command.type === "backspace") {
+      setInput((current) => current.slice(0, -1));
+      return;
+    }
+
+    if (command.type === "submit" || command.type === "select") {
+      submitCandidate(input.trim().toUpperCase());
+      return;
+    }
+
+    if (command.type === "hint") {
+      requestHint();
+    }
+  }
+
+  const captureRef = useInputCapture(!isPaused, config.interactionConfig, handleCommand);
+
   return (
-    <section className="renderer-shell">
+    <section className="renderer-shell" ref={captureRef} tabIndex={0}>
       <div className="renderer-toolbar">
         <div>
           <p className="eyebrow">Word Builder</p>
@@ -116,6 +150,7 @@ export function WordRenderer({ config, level, levelIndex, onAction, onComplete, 
           Hint
         </button>
       </div>
+      <p className="status-line">Type directly, or focus the board and use the keyboard without clicking the input first.</p>
       <div className="letter-rack">
         {wordLevel.availableLetters.map((letter, index) => (
           <span key={`${letter}-${index}`} className="letter-tile">

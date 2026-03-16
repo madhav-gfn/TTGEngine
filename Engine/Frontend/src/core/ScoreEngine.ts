@@ -18,14 +18,16 @@ const createInitialState = (): ScoreState => ({
 export class ScoreEngine {
   private config: ScoringConfig | null = null;
   private state: ScoreState = createInitialState();
+  private wrongPenaltyEnabled = true;
 
   initialize(config: ScoringConfig): void {
     this.config = config;
     this.state = createInitialState();
+    this.wrongPenaltyEnabled = true;
     this.emitUpdate();
   }
 
-  startLevel(levelNumber: number, levelMultiplier = 1): void {
+  startLevel(levelNumber: number, levelMultiplier = 1, options?: { wrongPenaltyEnabled?: boolean }): void {
     this.state = {
       ...this.state,
       currentLevel: levelNumber,
@@ -41,6 +43,7 @@ export class ScoreEngine {
         : 0,
       lastLevelScore: undefined,
     };
+    this.wrongPenaltyEnabled = options?.wrongPenaltyEnabled ?? true;
     this.emitUpdate();
   }
 
@@ -84,7 +87,7 @@ export class ScoreEngine {
     const normalizedTimeTaken = Math.max(0, Math.round(timeTaken));
     const timeBonus = this.calculateTimeBonus(remainingSeconds);
     const hintPenalty = this.state.hintsUsed * this.config.penaltyPerHint;
-    const wrongPenalty = this.state.wrongActions * this.config.penaltyPerWrong;
+    const wrongPenalty = this.wrongPenaltyEnabled ? this.state.wrongActions * this.config.penaltyPerWrong : 0;
     const multiplier = this.state.currentLevelMultiplier || 1;
     const levelTotal = Math.max(
       0,

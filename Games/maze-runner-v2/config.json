@@ -1,0 +1,96 @@
+{
+  "schemaVersion": 2,
+  "gameId": "maze-runner-v2",
+  "gameType": "BOARD",
+  "title": "Maze Runner",
+  "description": "Navigate a compact maze with keyboard movement, collect every task tile, and reach the goal before time runs out.",
+  "version": "2.0.0",
+  "difficulty": "medium",
+  "levels": [
+    {
+      "levelNumber": 1,
+      "timeLimit": 90,
+      "bonusMultiplier": 1,
+      "board": [
+        "S..#..",
+        ".#T#..",
+        "..#..G",
+        "..T..."
+      ],
+      "tasks": [
+        { "id": "switch-a", "row": 1, "col": 2, "label": "Switch A" },
+        { "id": "badge-b", "row": 3, "col": 2, "label": "Badge B" }
+      ]
+    },
+    {
+      "levelNumber": 2,
+      "timeLimit": 120,
+      "bonusMultiplier": 1.5,
+      "board": [
+        "S...#..",
+        ".##.#T.",
+        ".T..#..",
+        ".##...G",
+        "...T..."
+      ],
+      "tasks": [
+        { "id": "relay-1", "row": 1, "col": 5, "label": "Relay 1" },
+        { "id": "relay-2", "row": 2, "col": 1, "label": "Relay 2" },
+        { "id": "relay-3", "row": 4, "col": 3, "label": "Relay 3" }
+      ]
+    }
+  ],
+  "timerConfig": {
+    "type": "countdown",
+    "duration": 90,
+    "warningAt": [20, 10, 5]
+  },
+  "scoringConfig": {
+    "basePoints": 35,
+    "bonusMultiplier": 1.25,
+    "penaltyPerHint": 0,
+    "penaltyPerWrong": 0,
+    "timeBonusFormula": "linear",
+    "timeBonusMultiplier": 2
+  },
+  "uiConfig": {
+    "theme": "dark",
+    "primaryColor": "#0f766e",
+    "secondaryColor": "#f59e0b",
+    "iconSet": "lucide",
+    "layout": "fullscreen",
+    "showTimer": true,
+    "showScore": true,
+    "showProgress": true
+  },
+  "interactionConfig": {
+    "inputMode": "keyboard",
+    "autoFocus": true,
+    "keybindings": {
+      "moveUp": ["ArrowUp", "w", "W"],
+      "moveDown": ["ArrowDown", "s", "S"],
+      "moveLeft": ["ArrowLeft", "a", "A"],
+      "moveRight": ["ArrowRight", "d", "D"]
+    },
+    "pointer": {
+      "dragEnabled": false,
+      "touchEnabled": true
+    },
+    "accessibility": {
+      "keyboardDragDrop": true,
+      "announceCommands": true
+    }
+  },
+  "metadata": {
+    "author": "TaPTaP Engine Team",
+    "createdAt": "2026-03-15T00:00:00Z",
+    "updatedAt": "2026-03-15T00:00:00Z",
+    "tags": ["movement", "board", "keyboard", "v2"],
+    "targetSkill": "Spatial Reasoning",
+    "estimatedPlayTime": 6
+  },
+  "apiConfig": {
+    "leaderboardEndpoint": "/api/leaderboard/maze-runner-v2",
+    "scoreSubmitEndpoint": "/api/score"
+  }
+}

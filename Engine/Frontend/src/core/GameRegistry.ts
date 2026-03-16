@@ -6,6 +6,7 @@ import { GridRenderer } from "@/renderers/GridRenderer";
 import { WordRenderer } from "@/renderers/WordRenderer";
 import { MCQRenderer } from "@/renderers/MCQRenderer";
 import { DragDropRenderer } from "@/renderers/DragDropRenderer";
+import { BoardRenderer } from "@/renderers/BoardRenderer";
 
 export type RendererComponent = ComponentType<GameRendererProps>;
 
@@ -14,6 +15,7 @@ const defaultRendererMap: Record<GameType, RendererComponent> = {
   [GameTypeEnum.WORD]: WordRenderer,
   [GameTypeEnum.MCQ]: MCQRenderer,
   [GameTypeEnum.DRAG_DROP]: DragDropRenderer,
+  [GameTypeEnum.BOARD]: BoardRenderer,
   [GameTypeEnum.CUSTOM]: DragDropRenderer,
 };
 

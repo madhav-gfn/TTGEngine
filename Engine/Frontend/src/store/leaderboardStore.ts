@@ -3,20 +3,20 @@ import type { LeaderboardEntry } from "@/core/types";
 
 type LeaderboardStore = {
   cache: Record<string, LeaderboardEntry[]>;
-  setLeaderboard: (gameId: string, entries: LeaderboardEntry[]) => void;
-  clearLeaderboard: (gameId: string) => void;
+  setLeaderboard: (cacheKey: string, entries: LeaderboardEntry[]) => void;
+  clearLeaderboard: (cacheKey: string) => void;
 };
 
 export const useLeaderboardStore = create<LeaderboardStore>((set) => ({
   cache: {},
-  setLeaderboard: (gameId, entries) =>
+  setLeaderboard: (cacheKey, entries) =>
     set((state) => ({
-      cache: { ...state.cache, [gameId]: entries },
+      cache: { ...state.cache, [cacheKey]: entries },
     })),
-  clearLeaderboard: (gameId) =>
+  clearLeaderboard: (cacheKey) =>
     set((state) => {
       const next = { ...state.cache };
-      delete next[gameId];
+      delete next[cacheKey];
       return { cache: next };
     }),
 }));

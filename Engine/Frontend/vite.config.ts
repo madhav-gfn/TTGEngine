@@ -7,10 +7,14 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      "@contracts": path.resolve(__dirname, "../Contracts/src"),
     },
   },
   server: {
     port: 5173,
+    fs: {
+      allow: [path.resolve(__dirname, "../..")],
+    },
     proxy: {
       "/api": {
         target: "http://localhost:8787",

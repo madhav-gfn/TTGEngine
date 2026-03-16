@@ -1,5 +1,6 @@
-﻿import type { CSSProperties } from "react";
+import type { CSSProperties } from "react";
 import { useGameLifecycle } from "@/hooks/useGameLifecycle";
+import { APP_THEME } from "@/lib/constants";
 import { useGameStore } from "@/store/gameStore";
 import { GameSelector } from "./GameSelector";
 import { GameContainer } from "./GameContainer";
@@ -10,14 +11,16 @@ export function Shell() {
   const availableGames = useGameStore((state) => state.availableGames);
   const lifecycleState = useGameStore((state) => state.lifecycleState);
   const activeConfig = useGameStore((state) => state.activeConfig);
+  const backendStatus = useGameStore((state) => state.backendStatus);
 
   const themeStyle = {
-    "--accent-primary": activeConfig?.uiConfig?.primaryColor ?? "#0f766e",
-    "--accent-secondary": activeConfig?.uiConfig?.secondaryColor ?? "#f59e0b",
+    "--accent-primary": APP_THEME.primaryColor,
+    "--accent-secondary": APP_THEME.secondaryColor,
   } as CSSProperties;
+  const layoutMode = activeConfig?.uiConfig?.layout ?? "sidebar";
 
   return (
-    <div className="shell-root" style={themeStyle}>
+    <div className={`shell-root layout-${layoutMode}`} style={themeStyle} data-theme={APP_THEME.mode}>
       <header className="shell-header">
         <div>
           <p className="eyebrow">TaPTaP Engine</p>
@@ -25,10 +28,11 @@ export function Shell() {
         </div>
         <div className="header-badges">
           <span className="tag-chip">State: {lifecycleState}</span>
+          <span className="tag-chip">Backend: {backendStatus.message}</span>
           <span className="tag-chip">Engine / Data separated</span>
         </div>
       </header>
-      <main className="shell-layout">
+      <main className={`shell-layout layout-${layoutMode}`}>
         <section className="shell-main">
           {lifecycleState === "IDLE" ? (
             <>
@@ -37,10 +41,14 @@ export function Shell() {
                 <h2>Runtime-loaded games, shared engine core, live loop updates</h2>
                 <p>
                   Select any game below. The frontend fetches its JSON at runtime, validates it,
-                  starts the engine lifecycle, and runs the timer/input/update/render loop live.
+                  normalizes v1 and v2 configs, starts the engine lifecycle, and runs the timer/input/update loop live.
                 </p>
               </div>
-              <GameSelector games={availableGames} onSelect={(gameId) => void actions.selectGame(gameId)} />
+              <GameSelector
+                games={availableGames}
+                backendMessage={backendStatus.message}
+                onSelect={(gameId) => void actions.selectGame(gameId)}
+              />
             </>
           ) : (
             <GameContainer
@@ -55,32 +63,36 @@ export function Shell() {
             />
           )}
         </section>
-        <aside className="shell-aside">
-          <div className="aside-card">
-            <p className="eyebrow">Architecture</p>
-            <h3>Engine Core</h3>
-            <ul>
-              <li>Registry discovers games through the backend manifest.</li>
-              <li>Config loader validates JSON before render.</li>
-              <li>Timer and score engines emit live state updates.</li>
-              <li>Leaderboard API stays outside the frontend runtime.</li>
-            </ul>
-          </div>
-          {activeConfig ? (
+        {layoutMode !== "fullscreen" ? (
+          <aside className="shell-aside">
             <div className="aside-card">
-              <p className="eyebrow">Active Config</p>
-              <h3>{activeConfig.title}</h3>
-              <p>{activeConfig.metadata?.targetSkill ?? "Skill-driven gameplay"}</p>
-              <div className="tag-row">
-                {(activeConfig.metadata?.tags ?? []).map((tag) => (
-                  <span key={tag} className="tag-chip">
-                    {tag}
-                  </span>
-                ))}
-              </div>
+              <p className="eyebrow">Architecture</p>
+              <h3>Engine Core</h3>
+              <ul>
+                <li>Registry discovers games through the backend manifest.</li>
+                <li>Shared contracts normalize v1 and v2 JSON before render.</li>
+                <li>Command-driven input now powers keyboard, pointer, and hybrid flows.</li>
+                <li>Leaderboard API stays outside the frontend runtime.</li>
+              </ul>
             </div>
-          ) : null}
-        </aside>
+            {activeConfig ? (
+              <div className="aside-card">
+                <p className="eyebrow">Active Config</p>
+                <h3>{activeConfig.title}</h3>
+                <p>{activeConfig.metadata?.targetSkill ?? "Skill-driven gameplay"}</p>
+                <div className="tag-row">
+                  <span className="tag-chip">Schema v{activeConfig.schemaVersion}</span>
+                  <span className="tag-chip">{activeConfig.interactionMode}</span>
+                  {(activeConfig.metadata?.tags ?? []).map((tag) => (
+                    <span key={tag} className="tag-chip">
+                      {tag}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </aside>
+        ) : null}
       </main>
       <Toast />
     </div>

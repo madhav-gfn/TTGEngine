@@ -35,6 +35,7 @@ export function GameContainer({
   const levelSummary = useGameStore((state) => state.levelSummary);
   const finalScore = useGameStore((state) => state.finalScore);
   const leaderboard = useGameStore((state) => state.leaderboard);
+  const submissionResult = useGameStore((state) => state.submissionResult);
   const error = useGameStore((state) => state.error);
 
   if (lifecycleState === "LOADING") {
@@ -56,7 +57,16 @@ export function GameContainer({
   }
 
   if (lifecycleState === "RESULTS" && finalScore) {
-    return <ResultsScreen score={finalScore} leaderboard={leaderboard} onReplay={replayGame} onBack={backToGames} />;
+    return (
+      <ResultsScreen
+        config={activeConfig}
+        score={finalScore}
+        leaderboard={leaderboard}
+        submissionResult={submissionResult}
+        onReplay={replayGame}
+        onBack={backToGames}
+      />
+    );
   }
 
   if (lifecycleState === "LEVEL_END" && levelSummary) {

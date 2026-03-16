@@ -1,0 +1,103 @@
+{
+  "schemaVersion": 2,
+  "gameId": "sort-sprint-v2",
+  "gameType": "DRAG_DROP",
+  "title": "Sort Sprint",
+  "description": "Classify learning prompts into the correct buckets with real drag and drop or full keyboard pickup/drop controls.",
+  "version": "2.0.0",
+  "difficulty": "easy",
+  "levels": [
+    {
+      "levelNumber": 1,
+      "timeLimit": 100,
+      "bonusMultiplier": 1,
+      "items": [
+        { "id": "item-logic-grid", "label": "Logic Grid", "category": "reasoning" },
+        { "id": "item-synonym", "label": "Synonym", "category": "language" },
+        { "id": "item-fraction", "label": "Fraction", "category": "math" },
+        { "id": "item-analogy", "label": "Analogy", "category": "language" }
+      ],
+      "targets": [
+        { "id": "target-math", "label": "Math", "acceptsMultiple": true },
+        { "id": "target-language", "label": "Language", "acceptsMultiple": true },
+        { "id": "target-reasoning", "label": "Reasoning", "acceptsMultiple": true }
+      ],
+      "correctMapping": {
+        "item-logic-grid": "target-reasoning",
+        "item-synonym": "target-language",
+        "item-fraction": "target-math",
+        "item-analogy": "target-language"
+      }
+    },
+    {
+      "levelNumber": 2,
+      "timeLimit": 120,
+      "bonusMultiplier": 1.35,
+      "items": [
+        { "id": "item-prime", "label": "Prime Numbers", "category": "math" },
+        { "id": "item-theme", "label": "Story Theme", "category": "language" },
+        { "id": "item-pattern", "label": "Pattern Series", "category": "reasoning" },
+        { "id": "item-grammar", "label": "Grammar Rule", "category": "language" }
+      ],
+      "targets": [
+        { "id": "target-math", "label": "Math", "acceptsMultiple": false },
+        { "id": "target-language", "label": "Language", "acceptsMultiple": true },
+        { "id": "target-reasoning", "label": "Reasoning", "acceptsMultiple": false },
+        { "id": "target-review", "label": "Needs Review", "acceptsMultiple": true }
+      ],
+      "correctMapping": {
+        "item-prime": "target-math",
+        "item-theme": "target-language",
+        "item-pattern": "target-reasoning",
+        "item-grammar": "target-review"
+      }
+    }
+  ],
+  "timerConfig": {
+    "type": "countdown",
+    "duration": 100,
+    "warningAt": [20, 10, 5]
+  },
+  "scoringConfig": {
+    "basePoints": 25,
+    "bonusMultiplier": 1.1,
+    "penaltyPerHint": 0,
+    "penaltyPerWrong": 5,
+    "timeBonusFormula": "linear",
+    "timeBonusMultiplier": 1
+  },
+  "uiConfig": {
+    "theme": "light",
+    "primaryColor": "#1d4ed8",
+    "secondaryColor": "#16a34a",
+    "iconSet": "lucide",
+    "layout": "sidebar",
+    "showTimer": true,
+    "showScore": true,
+    "showProgress": true
+  },
+  "interactionConfig": {
+    "inputMode": "hybrid",
+    "autoFocus": true,
+    "pointer": {
+      "dragEnabled": true,
+      "touchEnabled": true
+    },
+    "accessibility": {
+      "keyboardDragDrop": true,
+      "announceCommands": true
+    }
+  },
+  "metadata": {
+    "author": "TaPTaP Engine Team",
+    "createdAt": "2026-03-15T00:00:00Z",
+    "updatedAt": "2026-03-15T00:00:00Z",
+    "tags": ["drag-drop", "sorting", "hybrid", "v2"],
+    "targetSkill": "Classification",
+    "estimatedPlayTime": 5
+  },
+  "apiConfig": {
+    "leaderboardEndpoint": "/api/leaderboard/sort-sprint-v2",
+    "scoreSubmitEndpoint": "/api/score"
+  }
+}

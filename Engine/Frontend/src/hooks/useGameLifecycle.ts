@@ -5,9 +5,14 @@ import { gameStateMachine } from "@/core/GameStateMachine";
 import { leaderboardConnector } from "@/core/LeaderboardConnector";
 import { scoreEngine } from "@/core/ScoreEngine";
 import { timerEngine } from "@/core/TimerEngine";
-import type { EngineError, GameAction, GameConfig, GameState, LevelResult } from "@/core/types";
+import type { EngineError, GameAction, GameConfig, GameState, LeaderboardQuery, LevelResult } from "@/core/types";
 import { EMPTY_TIMER_TICK } from "@/lib/constants";
-import { getLevelMultiplier, getLevelTimerConfig, getOrCreateUserId } from "@/lib/utils";
+import {
+  getLevelMultiplier,
+  getLevelTimerConfig,
+  getOrCreateUserId,
+  isWrongPenaltyEnabledForLevel,
+} from "@/lib/utils";
 import { useGameStore } from "@/store/gameStore";
 import { useLeaderboardStore } from "@/store/leaderboardStore";
 import { useUIStore } from "@/store/uiStore";
@@ -38,16 +43,52 @@ export function useGameLifecycle() {
     finalizingRef.current = false;
   }
 
+  function serializeLeaderboardKey(gameId: string, options: LeaderboardQuery): string {
+    const query = new URLSearchParams();
+    Object.entries(options).forEach(([key, value]) => {
+      if (value !== undefined) {
+        query.set(key, String(value));
+      }
+    });
+    return `${gameId}?${query.toString()}`;
+  }
+
   useEffect(() => {
     const gameStore = useGameStore.getState();
 
     void gameRegistry
       .discover()
-      .then((games) => gameStore.setAvailableGames(games))
+      .then((games) => {
+        gameStore.setAvailableGames(games);
+        if (useGameStore.getState().backendStatus.state === "offline" && games.length > 0) {
+          useGameStore.getState().setBackendStatus({
+            state: "offline",
+            message: "Backend offline / using local games",
+          });
+        }
+      })
       .catch((error) => {
         const engineError = toEngineError(error, "DISCOVERY_FAILED");
         gameStore.setError(engineError);
         gameStore.setLifecycleState("ERROR");
+      });
+
+    void leaderboardConnector
+      .getHealth()
+      .then(() => {
+        useGameStore.getState().setBackendStatus({
+          state: "online",
+          message: "Backend online",
+        });
+      })
+      .catch(() => {
+        const message = useGameStore.getState().availableGames.length > 0
+          ? "Backend offline / using local games"
+          : "Backend unavailable";
+        useGameStore.getState().setBackendStatus({
+          state: "offline",
+          message,
+        });
       });
 
     void leaderboardConnector.flushQueue().catch(() => undefined);
@@ -102,20 +143,22 @@ export function useGameLifecycle() {
     }
   }
 
-  async function refreshLeaderboard(gameId?: string): Promise<void> {
+  async function refreshLeaderboard(gameId?: string, options: LeaderboardQuery = {
+    limit: 20,
+    offset: 0,
+    period: "all",
+    difficulty: "all",
+  }): Promise<void> {
     const store = useGameStore.getState();
     const activeGameId = gameId ?? store.activeGameId;
+    const activeConfig = store.activeConfig;
     if (!activeGameId) {
       return;
     }
 
-    const entries = await leaderboardConnector.getLeaderboard(activeGameId, {
-      limit: 20,
-      offset: 0,
-      period: "all",
-    });
+    const entries = await leaderboardConnector.getLeaderboard(activeGameId, options, activeConfig ?? undefined);
 
-    useLeaderboardStore.getState().setLeaderboard(activeGameId, entries);
+    useLeaderboardStore.getState().setLeaderboard(serializeLeaderboardKey(activeGameId, options), entries);
     store.setLeaderboard(entries);
     eventBus.emit("leaderboard:updated", { gameId: activeGameId, leaderboard: entries });
   }
@@ -139,7 +182,9 @@ export function useGameLifecycle() {
 
       store.setActiveGame(gameId, config);
       scoreEngine.initialize(config.scoringConfig);
-      scoreEngine.startLevel(1, getLevelMultiplier(config, 0));
+      scoreEngine.startLevel(1, getLevelMultiplier(config, 0), {
+        wrongPenaltyEnabled: isWrongPenaltyEnabledForLevel(config, 0),
+      });
       store.setScoreState(scoreEngine.getState());
       store.setTimerTick(EMPTY_TIMER_TICK);
       eventBus.emit("game:ready", { config });
@@ -175,7 +220,9 @@ export function useGameLifecycle() {
     finalizingRef.current = false;
 
     const levelNumber = store.currentLevelIndex + 1;
-    scoreEngine.startLevel(levelNumber, getLevelMultiplier(config, store.currentLevelIndex));
+    scoreEngine.startLevel(levelNumber, getLevelMultiplier(config, store.currentLevelIndex), {
+      wrongPenaltyEnabled: isWrongPenaltyEnabledForLevel(config, store.currentLevelIndex),
+    });
     store.setScoreState(scoreEngine.getState());
     timerEngine.start(getLevelTimerConfig(config, store.currentLevelIndex), levelNumber);
     eventBus.emit("game:start", { level: levelNumber });
@@ -230,17 +277,25 @@ export function useGameLifecycle() {
       },
     };
 
-    const submissionResult = await leaderboardConnector.submitScore(submission);
+    const submissionResult = await leaderboardConnector.submitScore(submission, config);
+    store.setSubmissionResult(submissionResult);
     if (submissionResult.pendingSync) {
       pushToast("Score queued locally and will retry on the next session.", "info");
-    } else if (submissionResult.success) {
+    } else if (submissionResult.success && submissionResult.data?.leaderboardEligible) {
       pushToast("Score submitted to the leaderboard.", "success");
+    } else if (submissionResult.success) {
+      pushToast("Score saved, but it was not eligible for ranking.", "info");
     } else if (submissionResult.error) {
       pushToast(submissionResult.error.message, "error");
     }
 
     try {
-      await refreshLeaderboard(config.gameId);
+      await refreshLeaderboard(config.gameId, {
+        limit: 20,
+        offset: 0,
+        period: "all",
+        difficulty: "all",
+      });
     } catch {
       pushToast("Leaderboard fetch failed, but the run is still complete.", "error");
     }
@@ -315,13 +370,16 @@ export function useGameLifecycle() {
     resetLifecycleLocks();
     timerEngine.reset();
     scoreEngine.initialize(config.scoringConfig);
-    scoreEngine.startLevel(1, getLevelMultiplier(config, 0));
+    scoreEngine.startLevel(1, getLevelMultiplier(config, 0), {
+      wrongPenaltyEnabled: isWrongPenaltyEnabledForLevel(config, 0),
+    });
     store.setCurrentLevelIndex(0);
     store.setTimerTick(EMPTY_TIMER_TICK);
     store.setScoreState(scoreEngine.getState());
     store.setLevelSummary(null);
     store.setFinalScore(null);
     store.setLeaderboard([]);
+    store.setSubmissionResult(null);
     store.setError(null);
     transitionTo("READY");
   }

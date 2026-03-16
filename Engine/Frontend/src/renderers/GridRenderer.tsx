@@ -1,5 +1,6 @@
-﻿import { useEffect, useState } from "react";
-import type { GameRendererProps, GridCell, GridLevelConfig } from "@/core/types";
+import { useEffect, useState } from "react";
+import type { GameRendererProps, GridCell, GridLevelConfig, InteractionCommand } from "@/core/types";
+import { useInputCapture } from "@/hooks/useInputCapture";
 import { buildGridState, getSubgridDimensions, serializeCellKey } from "@/lib/utils";
 
 function findNextHint(level: GridLevelConfig, board: number[][]): GridCell | null {
@@ -25,6 +26,19 @@ function isSolved(level: GridLevelConfig, board: number[][]): boolean {
   );
 }
 
+function findFirstEditableCell(level: GridLevelConfig): { row: number; col: number } {
+  const locked = new Set(level.preFilledCells.map((cell) => serializeCellKey(cell.row, cell.col)));
+  for (let row = 0; row < level.gridSize; row += 1) {
+    for (let col = 0; col < level.gridSize; col += 1) {
+      if (!locked.has(serializeCellKey(row, col))) {
+        return { row, col };
+      }
+    }
+  }
+
+  return { row: 0, col: 0 };
+}
+
 export function GridRenderer({ config, level, levelIndex, onAction, onComplete, isPaused }: GameRendererProps) {
   const gridLevel = level as GridLevelConfig;
   const [board, setBoard] = useState<number[][]>(() => buildGridState(gridLevel));
@@ -33,6 +47,7 @@ export function GridRenderer({ config, level, levelIndex, onAction, onComplete, 
   );
   const [lastWrongCell, setLastWrongCell] = useState<string | null>(null);
   const [completed, setCompleted] = useState(false);
+  const [focusedCell, setFocusedCell] = useState(() => findFirstEditableCell(gridLevel));
   const subgrid = getSubgridDimensions(gridLevel.gridSize);
 
   useEffect(() => {
@@ -40,6 +55,7 @@ export function GridRenderer({ config, level, levelIndex, onAction, onComplete, 
     setLocked(new Set(gridLevel.preFilledCells.map((cell) => serializeCellKey(cell.row, cell.col))));
     setLastWrongCell(null);
     setCompleted(false);
+    setFocusedCell(findFirstEditableCell(gridLevel));
   }, [config.gameId, levelIndex, gridLevel]);
 
   useEffect(() => {
@@ -58,30 +74,26 @@ export function GridRenderer({ config, level, levelIndex, onAction, onComplete, 
     });
   }, [board, completed, gridLevel, onComplete]);
 
-  function handleCellChange(row: number, col: number, rawValue: string) {
-    if (isPaused || completed) {
-      return;
-    }
-
+  function updateCell(row: number, col: number, nextValue: number): void {
     const key = serializeCellKey(row, col);
     if (locked.has(key)) {
       return;
     }
 
-    const numericValue = Number(rawValue.replace(/[^0-9]/g, "").slice(0, 2));
-    if (!numericValue) {
+    if (nextValue === 0) {
       setBoard((current) =>
         current.map((line, index) =>
           index === row ? line.map((value, innerCol) => (innerCol === col ? 0 : value)) : line,
         ),
       );
+      setLastWrongCell(null);
       return;
     }
 
-    if (numericValue === gridLevel.solution[row][col]) {
+    if (nextValue === gridLevel.solution[row][col]) {
       setBoard((current) => {
         const next = current.map((line) => [...line]);
-        next[row][col] = numericValue;
+        next[row][col] = nextValue;
         return next;
       });
       setLocked((current) => new Set(current).add(key));
@@ -111,11 +123,48 @@ export function GridRenderer({ config, level, levelIndex, onAction, onComplete, 
       return next;
     });
     setLocked((current) => new Set(current).add(key));
+    setFocusedCell({ row: hint.row, col: hint.col });
     onAction({ type: "hint" });
   }
 
+  function handleCommand(command: InteractionCommand): void {
+    if (isPaused || completed) {
+      return;
+    }
+
+    if (command.type === "move") {
+      const delta = {
+        up: { row: -1, col: 0 },
+        down: { row: 1, col: 0 },
+        left: { row: 0, col: -1 },
+        right: { row: 0, col: 1 },
+      }[command.direction];
+      setFocusedCell((current) => ({
+        row: Math.max(0, Math.min(gridLevel.gridSize - 1, current.row + delta.row)),
+        col: Math.max(0, Math.min(gridLevel.gridSize - 1, current.col + delta.col)),
+      }));
+      return;
+    }
+
+    if (command.type === "type" && /^[0-9]$/.test(command.value)) {
+      updateCell(focusedCell.row, focusedCell.col, Number(command.value));
+      return;
+    }
+
+    if (command.type === "backspace") {
+      updateCell(focusedCell.row, focusedCell.col, 0);
+      return;
+    }
+
+    if (command.type === "hint") {
+      requestHint();
+    }
+  }
+
+  const captureRef = useInputCapture(!isPaused, config.interactionConfig, handleCommand);
+
   return (
-    <section className="renderer-shell">
+    <section className="renderer-shell" ref={captureRef} tabIndex={0}>
       <div className="renderer-toolbar">
         <div>
           <p className="eyebrow">Grid Puzzle</p>
@@ -125,6 +174,7 @@ export function GridRenderer({ config, level, levelIndex, onAction, onComplete, 
           Reveal Hint
         </button>
       </div>
+      <p className="status-line">Move with arrow keys or WASD, then type a number. Backspace clears the focused cell.</p>
       <div
         className="grid-board"
         style={{
@@ -136,6 +186,7 @@ export function GridRenderer({ config, level, levelIndex, onAction, onComplete, 
             const key = serializeCellKey(rowIndex, colIndex);
             const isLocked = locked.has(key);
             const wrong = lastWrongCell === key;
+            const isFocused = focusedCell.row === rowIndex && focusedCell.col === colIndex;
             const borderClass =
               subgrid.rows > 1 && (rowIndex + 1) % subgrid.rows === 0 && rowIndex < gridLevel.gridSize - 1
                 ? "cell-border-row"
@@ -144,17 +195,16 @@ export function GridRenderer({ config, level, levelIndex, onAction, onComplete, 
                   : "";
 
             return (
-              <label key={key} className={`grid-cell ${isLocked ? "is-locked" : ""} ${wrong ? "is-wrong" : ""} ${borderClass}`.trim()}>
+              <button
+                key={key}
+                type="button"
+                className={`grid-cell ${isLocked ? "is-locked" : ""} ${wrong ? "is-wrong" : ""} ${isFocused ? "is-focused" : ""} ${borderClass}`.trim()}
+                disabled={isPaused || completed}
+                onClick={() => setFocusedCell({ row: rowIndex, col: colIndex })}
+              >
                 <span className="sr-only">Cell {rowIndex + 1}, {colIndex + 1}</span>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  maxLength={2}
-                  value={value || ""}
-                  onChange={(event) => handleCellChange(rowIndex, colIndex, event.target.value)}
-                  disabled={isPaused || isLocked || completed}
-                />
-              </label>
+                <span className="grid-cell-value">{value || ""}</span>
+              </button>
             );
           }),
         )}

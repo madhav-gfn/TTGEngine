@@ -1,8 +1,10 @@
 import type { ScoreState, TimerTick, UIConfig } from "@/core/types";
 
 export const API_ENDPOINTS = {
+  health: "/api/health",
   games: "/api/games",
   score: "/api/score",
+  leaderboard: "/api/leaderboard",
 } as const;
 
 export const STORAGE_KEYS = {
@@ -41,3 +43,9 @@ export const DEFAULT_UI_CONFIG: UIConfig = {
   showScore: true,
   showProgress: true,
 };
+
+export const APP_THEME = {
+  mode: "light",
+  primaryColor: "#0f766e",
+  secondaryColor: "#f59e0b",
+} as const;
