@@ -1,10 +1,16 @@
 import type { ScoreState, TimerTick, UIConfig } from "@/core/types";
 
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? "").trim().replace(/\/+$/, "");
+
+function buildApiEndpoint(pathname: string): string {
+  return API_BASE_URL ? `${API_BASE_URL}${pathname}` : pathname;
+}
+
 export const API_ENDPOINTS = {
-  health: "/api/health",
-  games: "/api/games",
-  score: "/api/score",
-  leaderboard: "/api/leaderboard",
+  health: buildApiEndpoint("/api/health"),
+  games: buildApiEndpoint("/api/games"),
+  score: buildApiEndpoint("/api/score"),
+  leaderboard: buildApiEndpoint("/api/leaderboard"),
 } as const;
 
 export const STORAGE_KEYS = {

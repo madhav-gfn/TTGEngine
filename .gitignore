@@ -3,6 +3,9 @@ dist
 .vite
 .turbo
 coverage
+.env
+.env.local
+.env.*.local
 *.log
 *.db
 *.db-shm

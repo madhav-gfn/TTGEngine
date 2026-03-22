@@ -1,4 +1,5 @@
 import { getJson } from "@/lib/api";
+import { API_ENDPOINTS } from "@/lib/constants";
 import { validateGameConfig } from "@/schemas/validate";
 import type { GameConfig, GameSummary, ValidationResult } from "./types";
 
@@ -30,7 +31,7 @@ export class ConfigLoader {
 
   async preload(gameIds: string[]): Promise<Map<string, GameConfig>> {
     const results = await Promise.all(
-      gameIds.map(async (gameId) => [gameId, await this.load(`/api/games/${gameId}`)] as const),
+      gameIds.map(async (gameId) => [gameId, await this.load(`${API_ENDPOINTS.games}/${gameId}`)] as const),
     );
 
     return new Map(results);
@@ -38,7 +39,7 @@ export class ConfigLoader {
 
   async loadManifest(): Promise<GameSummary[]> {
     try {
-      const manifest = await getJson<GameSummary[]>("/api/games");
+      const manifest = await getJson<GameSummary[]>(API_ENDPOINTS.games);
       if (manifest.length > 0) {
         return manifest;
       }

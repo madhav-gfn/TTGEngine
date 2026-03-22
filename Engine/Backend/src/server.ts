@@ -1,13 +1,27 @@
 import cors from "cors";
 import express from "express";
+import { runtimeConfig } from "./lib/runtimeConfig.js";
 import { gamesRouter } from "./routes/games.js";
 import { leaderboardRouter } from "./routes/leaderboard.js";
 import { scoreRouter } from "./routes/score.js";
 
 const app = express();
-const port = Number(process.env.PORT ?? 8787);
+const port = runtimeConfig.port;
 
-app.use(cors());
+app.set("trust proxy", 1);
+
+const corsOptions: cors.CorsOptions = {
+  origin(origin, callback) {
+    if (!origin || runtimeConfig.allowedOrigins.length === 0) {
+      callback(null, true);
+      return;
+    }
+
+    callback(null, runtimeConfig.allowedOrigins.includes(origin));
+  },
+};
+
+app.use(cors(corsOptions));
 app.use(express.json({ limit: "1mb" }));
 
 app.get("/api/health", (_req, res) => {
@@ -30,5 +44,7 @@ app.use((error: Error, _req: express.Request, res: express.Response, _next: expr
 });
 
 app.listen(port, () => {
-  console.log(`TaPTaP backend listening on http://localhost:${port}`);
+  console.log(`TaPTaP backend listening on port ${port}`);
+  console.log(`Games root: ${runtimeConfig.gamesRoot}`);
+  console.log(`Database path: ${runtimeConfig.databasePath}`);
 });

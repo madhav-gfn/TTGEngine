@@ -1,11 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import Database from "better-sqlite3";
-import { fileURLToPath } from "node:url";
+import { runtimeConfig } from "../lib/runtimeConfig.js";
 
-const dirname = path.dirname(fileURLToPath(import.meta.url));
-const dataDirectory = path.resolve(dirname, "../../data");
-const databasePath = path.join(dataDirectory, "leaderboard.db");
+const databasePath = runtimeConfig.databasePath;
+const dataDirectory = path.dirname(databasePath);
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS scores (
@@ -31,4 +30,5 @@ fs.mkdirSync(dataDirectory, { recursive: true });
 
 export const db = new Database(databasePath);
 db.pragma("journal_mode = WAL");
+db.pragma("busy_timeout = 5000");
 db.exec(SCHEMA_SQL);

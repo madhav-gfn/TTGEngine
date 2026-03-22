@@ -1,6 +1,5 @@
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import {
   normalizeGameConfig,
   parseGameConfig,
@@ -9,9 +8,9 @@ import {
   type GameConfig,
   type GameSummary,
 } from "./gameSchema.js";
+import { runtimeConfig } from "./runtimeConfig.js";
 
-const dirname = path.dirname(fileURLToPath(import.meta.url));
-const GAMES_ROOT = path.resolve(dirname, "../../../../Games");
+const GAMES_ROOT = runtimeConfig.gamesRoot;
 
 function getGameDirectories(): string[] {
   if (!fs.existsSync(GAMES_ROOT)) {

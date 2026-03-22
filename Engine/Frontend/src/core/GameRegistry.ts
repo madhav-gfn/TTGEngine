@@ -7,6 +7,7 @@ import { WordRenderer } from "@/renderers/WordRenderer";
 import { MCQRenderer } from "@/renderers/MCQRenderer";
 import { DragDropRenderer } from "@/renderers/DragDropRenderer";
 import { BoardRenderer } from "@/renderers/BoardRenderer";
+import { API_ENDPOINTS } from "@/lib/constants";
 
 export type RendererComponent = ComponentType<GameRendererProps>;
 
@@ -53,7 +54,7 @@ export class GameRegistry {
       return cached;
     }
 
-    const config = await configLoader.load(`/api/games/${gameId}`);
+    const config = await configLoader.load(`${API_ENDPOINTS.games}/${gameId}`);
     this.register(config);
     return config;
   }
