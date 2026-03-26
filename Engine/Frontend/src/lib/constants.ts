@@ -1,6 +1,41 @@
 import type { ScoreState, TimerTick, UIConfig } from "@/core/types";
 
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? "").trim().replace(/\/+$/, "");
+const LOCAL_BACKEND_PORT = "8787";
+const LOCAL_HOSTNAMES = new Set(["localhost", "127.0.0.1", "::1"]);
+const PLACEHOLDER_API_BASE_PATTERNS = [
+  /^https?:\/\/your-[^/]+$/i,
+  /your-render-backend\.onrender\.com/i,
+  /your-vercel-frontend\.vercel\.app/i,
+] as const;
+
+function sanitizeApiBaseUrl(value: string | undefined): string {
+  const trimmed = (value ?? "").trim().replace(/\/+$/, "");
+  if (!trimmed) {
+    return "";
+  }
+
+  const isPlaceholder = PLACEHOLDER_API_BASE_PATTERNS.some((pattern) => pattern.test(trimmed));
+  return isPlaceholder ? "" : trimmed;
+}
+
+function getLocalApiBaseUrl(locationLike: Pick<Location, "hostname" | "protocol"> | undefined): string {
+  if (!locationLike || !LOCAL_HOSTNAMES.has(locationLike.hostname)) {
+    return "";
+  }
+
+  const protocol = locationLike.protocol === "https:" ? "https:" : "http:";
+  return `${protocol}//${locationLike.hostname}:${LOCAL_BACKEND_PORT}`;
+}
+
+export function resolveApiBaseUrl(
+  configuredBaseUrl: string | undefined,
+  locationLike: Pick<Location, "hostname" | "protocol"> | undefined =
+    typeof window === "undefined" ? undefined : window.location,
+): string {
+  return sanitizeApiBaseUrl(configuredBaseUrl) || getLocalApiBaseUrl(locationLike);
+}
+
+const API_BASE_URL = resolveApiBaseUrl(import.meta.env.VITE_API_BASE_URL);
 
 function buildApiEndpoint(pathname: string): string {
   return API_BASE_URL ? `${API_BASE_URL}${pathname}` : pathname;
