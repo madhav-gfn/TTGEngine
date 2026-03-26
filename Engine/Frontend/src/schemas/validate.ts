@@ -1,4 +1,4 @@
-import { validateAndNormalizeGameConfig } from "@contracts/index";
+import { validateAndNormalizeGameConfig } from "@/core/gameSchema";
 import type { GameConfig, ValidationResult } from "@/core/types";
 
 export function validateGameConfig(raw: unknown): ValidationResult<GameConfig> {

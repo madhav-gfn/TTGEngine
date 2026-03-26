@@ -5,19 +5,27 @@ import type {
   InteractionCommand as SharedInteractionCommand,
   InteractionConfig as SharedInteractionConfig,
   InteractionSession as SharedInteractionSession,
-  LeaderboardEntry as SharedLeaderboardEntry,
-  LeaderboardPayload as SharedLeaderboardPayload,
-  LeaderboardQuery as SharedLeaderboardQuery,
+  LevelConfig as SharedLevelConfig,
   RuntimeGameConfig as SharedRuntimeGameConfig,
-  ScoreSubmission as SharedScoreSubmission,
-  ScoreSubmissionResponseData,
   ValidationResult as SharedValidationResult,
-} from "@contracts/index";
+} from "./gameSchema";
 import {
+  DEFAULT_INTERACTION_CONFIG,
+  DEFAULT_UI_CONFIG,
   GameType as SharedGameType,
   TimeBonusFormula as SharedTimeBonusFormula,
   TimerType as SharedTimerType,
-} from "@contracts/index";
+  calculateMaxPossibleScore,
+  calculateMinimumTimeMs,
+  getBoardGoal,
+  getBoardStart,
+  getBoardTaskPositions,
+  normalizeGameConfig,
+  parseGameConfig,
+  safeParseGameConfig,
+  toGameSummary,
+  validateAndNormalizeGameConfig,
+} from "./gameSchema";
 
 export {
   DEFAULT_INTERACTION_CONFIG,
@@ -32,7 +40,7 @@ export {
   safeParseGameConfig,
   toGameSummary,
   validateAndNormalizeGameConfig,
-} from "@contracts/index";
+} from "./gameSchema";
 
 export type {
   APIConfig,
@@ -64,7 +72,7 @@ export type {
   UIConfig,
   WordEntry,
   WordLevelConfig,
-} from "@contracts/index";
+} from "./gameSchema";
 
 export const GameType = SharedGameType;
 export const TimerType = SharedTimerType;
@@ -155,10 +163,44 @@ export interface ScoreState {
   lastLevelScore?: LevelScore;
 }
 
-export type ScoreSubmission = SharedScoreSubmission;
-export type LeaderboardQuery = SharedLeaderboardQuery;
-export type LeaderboardEntry = SharedLeaderboardEntry;
-export type LeaderboardResponse = SharedLeaderboardPayload;
+export interface ScoreSubmission {
+  userId: string;
+  gameId: string;
+  score: number;
+  timeTaken: number;
+  level: number;
+  metadata: Record<string, unknown>;
+}
+
+export interface ScoreSubmissionResponseData {
+  submissionId: string;
+  rank: number;
+  totalPlayers: number;
+  personalBest: boolean;
+  leaderboardEligible: boolean;
+}
+
+export interface LeaderboardEntry {
+  rank: number;
+  userId: string;
+  displayName: string;
+  score: number;
+  timeTaken: number;
+  submittedAt: string;
+}
+
+export interface LeaderboardResponse {
+  gameId: string;
+  totalEntries: number;
+  leaderboard: LeaderboardEntry[];
+}
+
+export interface LeaderboardQuery {
+  limit?: number;
+  offset?: number;
+  difficulty?: Difficulty | "all";
+  period?: "daily" | "weekly" | "monthly" | "all";
+}
 
 export interface SubmissionResult {
   success: boolean;
@@ -190,7 +232,7 @@ export interface BackendStatus {
 export interface GameRendererProps {
   config: GameConfig;
   levelIndex: number;
-  level: import("@contracts/index").LevelConfig;
+  level: SharedLevelConfig;
   onAction: (action: GameAction) => void;
   onComplete: (result: LevelResult) => void;
   isPaused: boolean;
