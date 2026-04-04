@@ -36,6 +36,7 @@ export function resolveApiBaseUrl(
 }
 
 const API_BASE_URL = resolveApiBaseUrl(import.meta.env.VITE_API_BASE_URL);
+export const ADMIN_API_KEY = (import.meta.env.VITE_ADMIN_KEY ?? "").trim();
 
 function buildApiEndpoint(pathname: string): string {
   return API_BASE_URL ? `${API_BASE_URL}${pathname}` : pathname;
@@ -46,6 +47,7 @@ export const API_ENDPOINTS = {
   games: buildApiEndpoint("/api/games"),
   score: buildApiEndpoint("/api/score"),
   leaderboard: buildApiEndpoint("/api/leaderboard"),
+  admin: buildApiEndpoint("/api/admin"),
 } as const;
 
 export const STORAGE_KEYS = {

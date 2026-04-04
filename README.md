@@ -16,6 +16,24 @@ Core engine logic lives inside `Engine`, and game content lives inside `Games`. 
 
 The frontend loads available games from the backend at runtime, validates configs, and runs the full engine lifecycle.
 
+## Admin Dashboard
+
+The frontend now includes an Admin Dashboard view for:
+
+- Creating new JSON games
+- Updating and deleting existing games
+- Reviewing per-game stats (submissions, players, high score)
+- Previewing leaderboard entries for each game
+
+Use the header toggle button in the app to switch between player mode and admin mode.
+
+Admin API endpoints live under `/api/admin/*` and can be protected with an optional backend key.
+
+- Backend env: `ADMIN_API_KEY`
+- Frontend env (to send the header): `VITE_ADMIN_KEY`
+
+If no `ADMIN_API_KEY` is configured, admin routes stay open for local development.
+
 ## Deployment
 
 This repo is set up for:
@@ -41,6 +59,7 @@ Deploy the repo root with the included `render.yaml`. The backend service uses:
 - `CORS_ORIGIN`
 - `DATABASE_PATH`
 - `GAMES_ROOT`
+- `ADMIN_API_KEY` (optional)
 
 Set `CORS_ORIGIN` to your Vercel app URL, for example `https://your-frontend.vercel.app`.
 

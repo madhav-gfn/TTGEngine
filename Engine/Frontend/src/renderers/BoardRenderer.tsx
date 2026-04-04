@@ -103,6 +103,8 @@ export function BoardRenderer({ config, level, levelIndex, onAction, onComplete,
             const isGoal = goal.row === rowIndex && goal.col === colIndex;
             const task = tasks.find((entry) => entry.row === rowIndex && entry.col === colIndex);
             const collected = task ? session.collectedTaskIds.includes(task.id) : false;
+            const tileDisplay = isPlayer ? "P" : collected ? "." : task ? "T" : tile === "." ? "" : tile;
+            const tileKind = task ? "T" : tile;
             return (
               <div
                 key={`${rowIndex}-${colIndex}`}
@@ -113,9 +115,9 @@ export function BoardRenderer({ config, level, levelIndex, onAction, onComplete,
                   isPlayer ? "is-player" : "",
                   collected ? "is-cleared" : "",
                 ].join(" ").trim()}
-                aria-label={`${tileLabel(tile)} at row ${rowIndex + 1}, column ${colIndex + 1}`}
+                aria-label={`${tileLabel(tileKind)} at row ${rowIndex + 1}, column ${colIndex + 1}`}
               >
-                <span>{isPlayer ? "P" : collected ? "." : tile === "." ? "" : tile}</span>
+                <span>{tileDisplay}</span>
               </div>
             );
           }),

@@ -7,23 +7,35 @@ import {
 } from "@/core/interaction/adapters";
 import type { DragDropLevelConfig, GameRendererProps, InteractionCommand } from "@/core/types";
 import { useInputCapture } from "@/hooks/useInputCapture";
+import { shuffleArray } from "@/lib/utils";
 
 const dragDropEngine = new CommandEngine(dragDropCommandAdapter);
 
+function buildShuffledLevel(level: DragDropLevelConfig): DragDropLevelConfig {
+  return {
+    ...level,
+    items: shuffleArray(level.items),
+    targets: shuffleArray(level.targets),
+  };
+}
+
 export function DragDropRenderer({ config, level, levelIndex, onAction, onComplete, isPaused }: GameRendererProps) {
   const dragLevel = level as DragDropLevelConfig;
+  const [shuffledLevel, setShuffledLevel] = useState<DragDropLevelConfig>(() => buildShuffledLevel(dragLevel));
   const [session, setSession] = useState<DragDropSession>(() =>
-    dragDropEngine.createSession({ level: dragLevel }),
+    dragDropEngine.createSession({ level: shuffledLevel }),
   );
   const [status, setStatus] = useState("Drag items into targets or use keyboard pickup/drop.");
 
   useEffect(() => {
-    setSession(dragDropEngine.createSession({ level: dragLevel }));
+    const nextLevel = buildShuffledLevel(dragLevel);
+    setShuffledLevel(nextLevel);
+    setSession(dragDropEngine.createSession({ level: nextLevel }));
     setStatus("Drag items into targets or use keyboard pickup/drop.");
   }, [config.gameId, dragLevel, levelIndex]);
 
   function setMapping(itemId: string, targetId: string): void {
-    const target = dragLevel.targets.find((entry) => entry.id === targetId);
+    const target = shuffledLevel.targets.find((entry) => entry.id === targetId);
     if (!target) {
       return;
     }
@@ -51,10 +63,10 @@ export function DragDropRenderer({ config, level, levelIndex, onAction, onComple
   }
 
   function submitMapping() {
-    const result = evaluateDragDropMapping(session, dragLevel);
+    const result = evaluateDragDropMapping(session, shuffledLevel);
 
-    dragLevel.items.forEach((item) => {
-      if (session.mapping[item.id] === dragLevel.correctMapping[item.id]) {
+    shuffledLevel.items.forEach((item) => {
+      if (session.mapping[item.id] === shuffledLevel.correctMapping[item.id]) {
         onAction({ type: "correct", points: config.scoringConfig.basePoints });
       } else {
         onAction({ type: "wrong" });
@@ -81,7 +93,7 @@ export function DragDropRenderer({ config, level, levelIndex, onAction, onComple
       return;
     }
 
-    const outcome = dragDropEngine.dispatch(session, command, { level: dragLevel });
+    const outcome = dragDropEngine.dispatch(session, command, { level: shuffledLevel });
     setSession(outcome.session);
     if (outcome.announcement) {
       setStatus(outcome.announcement);
@@ -105,7 +117,7 @@ export function DragDropRenderer({ config, level, levelIndex, onAction, onComple
         <div className="dragdrop-column">
           <h4>Items</h4>
           <div className="dragdrop-stack">
-            {dragLevel.items.map((item, itemIndex) => (
+            {shuffledLevel.items.map((item, itemIndex) => (
               <button
                 key={item.id}
                 type="button"
@@ -139,8 +151,8 @@ export function DragDropRenderer({ config, level, levelIndex, onAction, onComple
         <div className="dragdrop-column">
           <h4>Targets</h4>
           <div className="dragdrop-stack">
-            {dragLevel.targets.map((target, targetIndex) => {
-              const assignedItems = dragLevel.items.filter((item) => session.mapping[item.id] === target.id);
+            {shuffledLevel.targets.map((target, targetIndex) => {
+              const assignedItems = shuffledLevel.items.filter((item) => session.mapping[item.id] === target.id);
               return (
                 <div
                   key={target.id}

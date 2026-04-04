@@ -64,4 +64,5 @@ export const runtimeConfig = {
   allowedOrigins: parseOrigins(process.env.CORS_ORIGIN),
   databasePath: resolveDatabasePath(),
   gamesRoot: resolveGamesRoot(),
+  adminKey: (process.env.ADMIN_API_KEY ?? "").trim(),
 };

@@ -1,13 +1,17 @@
 import type { CSSProperties } from "react";
+import { useState } from "react";
 import { useGameLifecycle } from "@/hooks/useGameLifecycle";
 import { APP_THEME } from "@/lib/constants";
 import { useGameStore } from "@/store/gameStore";
+import { AdminDashboard } from "./AdminDashboard";
 import { GameSelector } from "./GameSelector";
 import { GameContainer } from "./GameContainer";
 import { Toast } from "./shared/Toast";
+import { Button } from "./shared/Button";
 
 export function Shell() {
   const actions = useGameLifecycle();
+  const [viewMode, setViewMode] = useState<"player" | "admin">("player");
   const availableGames = useGameStore((state) => state.availableGames);
   const lifecycleState = useGameStore((state) => state.lifecycleState);
   const activeConfig = useGameStore((state) => state.activeConfig);
@@ -30,11 +34,19 @@ export function Shell() {
           <span className="tag-chip">State: {lifecycleState}</span>
           <span className="tag-chip">Backend: {backendStatus.message}</span>
           <span className="tag-chip">Engine / Data separated</span>
+          <Button
+            variant="secondary"
+            onClick={() => setViewMode((prev) => (prev === "player" ? "admin" : "player"))}
+          >
+            {viewMode === "player" ? "Open Admin Dashboard" : "Back To Player View"}
+          </Button>
         </div>
       </header>
       <main className={`shell-layout layout-${layoutMode}`}>
         <section className="shell-main">
-          {lifecycleState === "IDLE" ? (
+          {viewMode === "admin" ? (
+            <AdminDashboard />
+          ) : lifecycleState === "IDLE" ? (
             <>
               <div className="hero-card accent-card">
                 <p className="eyebrow">Engine Loop</p>

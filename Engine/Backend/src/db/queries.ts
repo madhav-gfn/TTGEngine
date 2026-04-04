@@ -30,6 +30,22 @@ interface LeaderboardQueryInput {
   period?: string;
 }
 
+export interface GameStatsRow {
+  gameId: string;
+  submissions: number;
+  validSubmissions: number;
+  players: number;
+  highScore: number | null;
+  averageScore: number | null;
+  lastSubmissionAt: string | null;
+}
+
+export interface OverallStats {
+  submissions: number;
+  validSubmissions: number;
+  players: number;
+}
+
 function buildWhereClause(input: LeaderboardQueryInput): { clause: string; params: Record<string, unknown> } {
   const clauses = ["game_id = @gameId", "is_valid = 1"];
   const params: Record<string, unknown> = {
@@ -194,5 +210,62 @@ export function getLeaderboard(
         submittedAt: row.submitted_at,
       };
     }),
+  };
+}
+
+export function getGameStatsRows(db: DatabaseHandle): GameStatsRow[] {
+  const rows = db
+    .prepare(
+      `SELECT
+        game_id,
+        COUNT(*) as submissions,
+        SUM(CASE WHEN is_valid = 1 THEN 1 ELSE 0 END) as valid_submissions,
+        COUNT(DISTINCT user_id) as players,
+        MAX(score) as high_score,
+        AVG(score) as average_score,
+        MAX(submitted_at) as last_submission_at
+      FROM scores
+      GROUP BY game_id`,
+    )
+    .all() as Array<{
+      game_id: string;
+      submissions: number;
+      valid_submissions: number;
+      players: number;
+      high_score: number | null;
+      average_score: number | null;
+      last_submission_at: string | null;
+    }>;
+
+  return rows.map((row) => ({
+    gameId: row.game_id,
+    submissions: row.submissions,
+    validSubmissions: row.valid_submissions,
+    players: row.players,
+    highScore: row.high_score,
+    averageScore: row.average_score,
+    lastSubmissionAt: row.last_submission_at,
+  }));
+}
+
+export function getOverallStats(db: DatabaseHandle): OverallStats {
+  const row = db
+    .prepare(
+      `SELECT
+        COUNT(*) as submissions,
+        SUM(CASE WHEN is_valid = 1 THEN 1 ELSE 0 END) as valid_submissions,
+        COUNT(DISTINCT user_id) as players
+      FROM scores`,
+    )
+    .get() as {
+      submissions: number;
+      valid_submissions: number | null;
+      players: number;
+    };
+
+  return {
+    submissions: row.submissions,
+    validSubmissions: row.valid_submissions ?? 0,
+    players: row.players,
   };
 }

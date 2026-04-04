@@ -28,6 +28,25 @@ export async function postJson<T>(input: string, body: unknown, init?: RequestIn
   });
 }
 
+export async function putJson<T>(input: string, body: unknown, init?: RequestInit): Promise<T> {
+  return apiFetch<T>(input, {
+    ...init,
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      ...(init?.headers ?? {}),
+    },
+    body: JSON.stringify(body),
+  });
+}
+
+export async function deleteJson<T>(input: string, init?: RequestInit): Promise<T> {
+  return apiFetch<T>(input, {
+    ...init,
+    method: "DELETE",
+  });
+}
+
 async function apiFetch<T>(input: string, init?: RequestInit): Promise<T> {
   const response = await fetch(input, init);
   const text = await response.text();
