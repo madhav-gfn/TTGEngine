@@ -39,9 +39,13 @@ export function GameContainer({
   const leaderboard = useGameStore((s) => s.leaderboard);
   const submissionResult = useGameStore((s) => s.submissionResult);
   const adaptiveInsights = useGameStore((s) => s.adaptiveInsights);
+  const sessionGenerationLog = useGameStore((s) => s.sessionGenerationLog);
+  const nextLevelGenerationStatus = useGameStore((s) => s.nextLevelGenerationStatus);
+  const nextLevelGenerationMessage = useGameStore((s) => s.nextLevelGenerationMessage);
   const error = useGameStore((s) => s.error);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const shellRef = useRef<HTMLDivElement | null>(null);
+  const totalLevels = sessionLevels.length || activeConfig?.levels.length || 0;
 
   useEffect(() => {
     const handleFullscreenChange = () => {
@@ -97,6 +101,7 @@ export function GameContainer({
         leaderboard={leaderboard}
         submissionResult={submissionResult}
         adaptiveInsights={adaptiveInsights}
+        generationLog={sessionGenerationLog}
         onReplay={replayGame}
         onBack={backToGames}
       />
@@ -109,7 +114,9 @@ export function GameContainer({
       <LevelTransition
         score={levelSummary}
         currentLevel={currentLevelIndex + 1}
-        totalLevels={activeConfig.levels.length}
+        totalLevels={totalLevels}
+        generationStatus={nextLevelGenerationStatus}
+        generationMessage={nextLevelGenerationMessage}
         onNext={nextLevel}
       />
     );
@@ -161,6 +168,8 @@ export function GameContainer({
               <h2 className="font-display font-bold text-sm text-ink leading-tight">{activeConfig.title}</h2>
               {currentLevelRuntime ? (
                 <p className="text-[11px] text-ink-faint mt-0.5">{currentLevelRuntime.summary}</p>
+              ) : nextLevelGenerationStatus !== "idle" && nextLevelGenerationMessage ? (
+                <p className="text-[11px] text-ink-faint mt-0.5">{nextLevelGenerationMessage}</p>
               ) : null}
             </div>
           </div>
@@ -170,7 +179,7 @@ export function GameContainer({
             <span className="text-xs">Level</span>
             <span className="font-display font-bold text-ink">
               {currentLevelIndex + 1}
-              <span className="text-ink-faint font-normal">/{activeConfig.levels.length}</span>
+              <span className="text-ink-faint font-normal">/{totalLevels}</span>
             </span>
           </div>
 
@@ -207,11 +216,11 @@ export function GameContainer({
       </div>
 
       {/* ── Level progress bar ── */}
-      {activeConfig.levels.length > 1 && (
+      {totalLevels > 1 && (
         <ProgressBar
           value={currentLevelIndex + 1}
-          max={activeConfig.levels.length}
-          label={`Level ${currentLevelIndex + 1} of ${activeConfig.levels.length}`}
+          max={totalLevels}
+          label={`Level ${currentLevelIndex + 1} of ${totalLevels}`}
         />
       )}
 

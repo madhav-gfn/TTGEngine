@@ -7,6 +7,7 @@ import type {
   ConfigError,
   EngineError,
   FinalScore,
+  GenerationStatus,
   GameConfig,
   GameState,
   GameSummary,
@@ -14,6 +15,7 @@ import type {
   LevelConfig,
   LevelScore,
   ScoreState,
+  SessionGenerationEntry,
   SubmissionResult,
   TimerTick,
 } from "@/core/types";
@@ -26,6 +28,9 @@ type GameStoreState = {
   sessionLevels: LevelConfig[];
   currentLevelRuntime: AdaptiveLevelRuntime | null;
   adaptiveInsights: AdaptiveInsight[];
+  sessionGenerationLog: SessionGenerationEntry[];
+  nextLevelGenerationStatus: GenerationStatus;
+  nextLevelGenerationMessage: string | null;
   currentAdaptiveBand: AdaptiveBand;
   lifecycleState: GameState;
   currentLevelIndex: number;
@@ -45,6 +50,8 @@ type GameStoreState = {
   setSessionLevelAt: (index: number, level: LevelConfig) => void;
   setCurrentLevelRuntime: (runtime: AdaptiveLevelRuntime | null) => void;
   pushAdaptiveInsight: (insight: AdaptiveInsight) => void;
+  pushSessionGenerationLog: (entry: SessionGenerationEntry) => void;
+  setNextLevelGenerationState: (status: GenerationStatus, message?: string | null) => void;
   setAdaptiveBand: (band: AdaptiveBand) => void;
   setLifecycleState: (state: GameState) => void;
   setCurrentLevelIndex: (index: number) => void;
@@ -67,6 +74,9 @@ export const useGameStore = create<GameStoreState>((set) => ({
   sessionLevels: [],
   currentLevelRuntime: null,
   adaptiveInsights: [],
+  sessionGenerationLog: [],
+  nextLevelGenerationStatus: "idle",
+  nextLevelGenerationMessage: null,
   currentAdaptiveBand: "standard",
   lifecycleState: "IDLE",
   currentLevelIndex: 0,
@@ -91,6 +101,9 @@ export const useGameStore = create<GameStoreState>((set) => ({
       sessionLevels: config?.levels ? [...config.levels] : [],
       currentLevelRuntime: null,
       adaptiveInsights: [],
+      sessionGenerationLog: [],
+      nextLevelGenerationStatus: "idle",
+      nextLevelGenerationMessage: null,
       currentAdaptiveBand: "standard",
       currentLevelIndex: 0,
       timerTick: EMPTY_TIMER_TICK,
@@ -110,6 +123,9 @@ export const useGameStore = create<GameStoreState>((set) => ({
     })),
   setCurrentLevelRuntime: (currentLevelRuntime) => set({ currentLevelRuntime }),
   pushAdaptiveInsight: (insight) => set((state) => ({ adaptiveInsights: [...state.adaptiveInsights, insight] })),
+  pushSessionGenerationLog: (entry) => set((state) => ({ sessionGenerationLog: [...state.sessionGenerationLog, entry] })),
+  setNextLevelGenerationState: (nextLevelGenerationStatus, nextLevelGenerationMessage = null) =>
+    set({ nextLevelGenerationStatus, nextLevelGenerationMessage }),
   setAdaptiveBand: (currentAdaptiveBand) => set({ currentAdaptiveBand }),
   setLifecycleState: (state) => set({ lifecycleState: state }),
   setCurrentLevelIndex: (index) => set({ currentLevelIndex: index }),
@@ -130,6 +146,9 @@ export const useGameStore = create<GameStoreState>((set) => ({
       sessionLevels: [],
       currentLevelRuntime: null,
       adaptiveInsights: [],
+      sessionGenerationLog: [],
+      nextLevelGenerationStatus: "idle",
+      nextLevelGenerationMessage: null,
       currentAdaptiveBand: "standard",
       lifecycleState: "IDLE",
       currentLevelIndex: 0,

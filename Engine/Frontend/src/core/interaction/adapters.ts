@@ -17,6 +17,7 @@ export interface BoardSession extends InteractionSession {
   enemies: Array<BoardEnemy & { directionStep: -1 | 1 }>;
   moveCount: number;
   collisions: number;
+  facing: "left" | "right";
 }
 
 export interface BoardAdapterContext {
@@ -30,6 +31,76 @@ function isWalkable(level: BoardLevelConfig, row: number, col: number): boolean 
   }
 
   return level.board[row][col] !== "#";
+}
+
+function isPlatformer(level: BoardLevelConfig): boolean {
+  return level.movementStyle === "platformer";
+}
+
+function canOccupy(level: BoardLevelConfig, row: number, col: number): boolean {
+  return isWalkable(level, row, col);
+}
+
+function applyGravity(level: BoardLevelConfig, row: number, col: number): { row: number; col: number } {
+  let nextRow = row;
+  while (nextRow + 1 < level.board.length && canOccupy(level, nextRow + 1, col)) {
+    nextRow += 1;
+  }
+  return { row: nextRow, col };
+}
+
+function movePlatformerHorizontal(
+  session: BoardSession,
+  level: BoardLevelConfig,
+  direction: "left" | "right",
+): { row: number; col: number } | null {
+  const deltaCol = direction === "left" ? -1 : 1;
+  const nextCol = session.col + deltaCol;
+  if (!canOccupy(level, session.row, nextCol)) {
+    return null;
+  }
+
+  return applyGravity(level, session.row, nextCol);
+}
+
+function dropPlatformer(session: BoardSession, level: BoardLevelConfig): { row: number; col: number } | null {
+  const nextRow = session.row + 1;
+  if (!canOccupy(level, nextRow, session.col)) {
+    return null;
+  }
+
+  return applyGravity(level, nextRow, session.col);
+}
+
+function jumpPlatformer(session: BoardSession, level: BoardLevelConfig): { row: number; col: number } | null {
+  let row = session.row;
+  let col = session.col;
+  let moved = false;
+  const jumpHeight = level.jumpHeight ?? 2;
+  const jumpDistance = level.jumpDistance ?? 2;
+  const directionStep = session.facing === "left" ? -1 : 1;
+
+  for (let step = 0; step < jumpHeight; step += 1) {
+    if (!canOccupy(level, row - 1, col)) {
+      break;
+    }
+    row -= 1;
+    moved = true;
+  }
+
+  for (let step = 0; step < jumpDistance; step += 1) {
+    if (!canOccupy(level, row, col + directionStep)) {
+      break;
+    }
+    col += directionStep;
+    moved = true;
+  }
+
+  if (!moved) {
+    return null;
+  }
+
+  return applyGravity(level, row, col);
 }
 
 function isEnemyWalkable(level: BoardLevelConfig, row: number, col: number): boolean {
@@ -90,9 +161,10 @@ function moveEnemy(
 export const boardCommandAdapter: CommandAdapter<BoardSession, BoardAdapterContext> = {
   createSession: ({ level }) => {
     const start = getBoardStart(level);
+    const startPosition = isPlatformer(level) ? applyGravity(level, start.row, start.col) : start;
     return {
-      row: start.row,
-      col: start.col,
+      row: startPosition.row,
+      col: startPosition.col,
       collectedTaskIds: [],
       completed: false,
       enemies: (level.enemies ?? []).map((enemy) => ({
@@ -104,6 +176,7 @@ export const boardCommandAdapter: CommandAdapter<BoardSession, BoardAdapterConte
       focusZone: "board",
       focusIndex: 0,
       heldItemId: null,
+      facing: "right",
     };
   },
   handleCommand: (session, command, context) => {
@@ -111,68 +184,101 @@ export const boardCommandAdapter: CommandAdapter<BoardSession, BoardAdapterConte
       return { session, handled: false };
     }
 
-    const delta = {
-      up: { row: -1, col: 0 },
-      down: { row: 1, col: 0 },
-      left: { row: 0, col: -1 },
-      right: { row: 0, col: 1 },
-    }[command.direction];
+    const platformer = isPlatformer(context.level);
+    let movement:
+      | { row: number; col: number; announcement?: string; facing?: "left" | "right" }
+      | null
+      = null;
 
-    const nextRow = session.row + delta.row;
-    const nextCol = session.col + delta.col;
+    if (platformer) {
+      if (command.direction === "up") {
+        const jumped = jumpPlatformer(session, context.level);
+        movement = jumped ? { ...jumped, announcement: "Jumped forward" } : null;
+      }
+      if (command.direction === "down") {
+        const dropped = dropPlatformer(session, context.level);
+        movement = dropped ? { ...dropped, announcement: "Dropped down" } : null;
+      }
+      if (command.direction === "left" || command.direction === "right") {
+        const shifted = movePlatformerHorizontal(session, context.level, command.direction);
+        movement = shifted ? { ...shifted, facing: command.direction } : null;
+      }
+    } else {
+      const delta = {
+        up: { row: -1, col: 0 },
+        down: { row: 1, col: 0 },
+        left: { row: 0, col: -1 },
+        right: { row: 0, col: 1 },
+      }[command.direction];
 
-    if (!isWalkable(context.level, nextRow, nextCol)) {
+      const nextRow = session.row + delta.row;
+      const nextCol = session.col + delta.col;
+      if (isWalkable(context.level, nextRow, nextCol)) {
+        movement = {
+          row: nextRow,
+          col: nextCol,
+          facing: command.direction === "left" || command.direction === "right" ? command.direction : session.facing,
+        };
+      }
+    }
+
+    if (!movement) {
       return {
         session,
         handled: true,
-        announcement: "Blocked path",
+        announcement: platformer && command.direction === "up" ? "Jump blocked" : "Blocked path",
       };
     }
 
     const tasks = getBoardTaskPositions(context.level);
-    const collidedBeforeEnemyMove = session.enemies.some((enemy) => enemy.row === nextRow && enemy.col === nextCol);
-    const nextTask = tasks.find((task) => task.row === nextRow && task.col === nextCol);
+    const collidedBeforeEnemyMove = session.enemies.some((enemy) => enemy.row === movement.row && enemy.col === movement.col);
+    const nextTask = tasks.find((task) => task.row === movement.row && task.col === movement.col);
     const goal = getBoardGoal(context.level);
-    const collectedTaskIds = nextTask && !session.collectedTaskIds.includes(nextTask.id)
+    const shouldAutoCollect = nextTask && !nextTask.challenge;
+    const collectedTaskIds = nextTask && !session.collectedTaskIds.includes(nextTask.id) && shouldAutoCollect
       ? [...session.collectedTaskIds, nextTask.id]
       : session.collectedTaskIds;
     const moveCount = session.moveCount + 1;
     const enemies = session.enemies.map((enemy) => (
       moveCount % (enemy.speed ?? 1) === 0 ? moveEnemy(enemy, context.level) : enemy
     ));
-    const collidedAfterEnemyMove = enemies.some((enemy) => enemy.row === nextRow && enemy.col === nextCol);
+    const collidedAfterEnemyMove = enemies.some((enemy) => enemy.row === movement.row && enemy.col === movement.col);
     const collided = collidedBeforeEnemyMove || collidedAfterEnemyMove;
     const start = getBoardStart(context.level);
+    const respawn = platformer ? applyGravity(context.level, start.row, start.col) : start;
     const completed =
       !collided &&
-      nextRow === goal.row &&
-      nextCol === goal.col &&
+      movement.row === goal.row &&
+      movement.col === goal.col &&
       collectedTaskIds.length === tasks.length;
 
     return {
       session: {
         ...session,
-        row: collided ? start.row : nextRow,
-        col: collided ? start.col : nextCol,
+        row: collided ? respawn.row : movement.row,
+        col: collided ? respawn.col : movement.col,
         collectedTaskIds,
         completed,
         enemies,
         moveCount,
         collisions: collided ? session.collisions + 1 : session.collisions,
+        facing: movement.facing ?? session.facing,
       },
       handled: true,
       announcement: collided
         ? "Enemy caught you. Returning to start."
-        : nextTask && !session.collectedTaskIds.includes(nextTask.id)
+        : nextTask?.challenge && !session.collectedTaskIds.includes(nextTask.id)
+          ? `Challenge unlocked: ${nextTask.label}`
+          : nextTask && !session.collectedTaskIds.includes(nextTask.id)
           ? `Collected ${nextTask.label}`
-          : undefined,
+          : movement.announcement,
       action: collided
         ? {
           type: "wrong",
           points: 0,
           metadata: { reason: "enemy_collision" },
         }
-        : nextTask && !session.collectedTaskIds.includes(nextTask.id)
+        : nextTask && !session.collectedTaskIds.includes(nextTask.id) && shouldAutoCollect
           ? {
             type: "correct",
             points: context.basePoints,

@@ -1,8 +1,11 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useSkillAnalytics } from "@/hooks/useSkillAnalytics";
+import { getOrCreateUserId } from "@/lib/utils";
 import { useGameStore } from "@/store/gameStore";
 import { useGameActions } from "@/core/GameLifecycleContext";
 import type { GameSummary } from "@/core/types";
+import { SkillAnalyticsPanel } from "./SkillAnalyticsPanel";
 
 const GAME_TYPE_COLORS: Record<string, string> = {
   MCQ: "bg-purple-100 text-purple-700",
@@ -137,6 +140,8 @@ export function PlayerHub() {
   const lifecycleState = useGameStore((s) => s.lifecycleState);
   const { selectGame } = useGameActions();
   const navigate = useNavigate();
+  const userId = getOrCreateUserId();
+  const { analytics, loading: analyticsLoading, error: analyticsError } = useSkillAnalytics(userId, { limit: 12 });
   const [activeFilter, setActiveFilter] = useState("all");
   const [isSelecting, setIsSelecting] = useState(false);
 
@@ -248,6 +253,14 @@ export function PlayerHub() {
               </div>
             </div>
           </div>
+
+          <SkillAnalyticsPanel
+            title="Learning History"
+            analytics={analytics}
+            loading={analyticsLoading}
+            error={analyticsError}
+            compact
+          />
         </aside>
       </div>
 

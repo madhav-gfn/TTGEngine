@@ -1,0 +1,473 @@
+{
+  "gameId": "axiom-ascent-v1",
+  "title": "Axiom Ascent",
+  "description": "A platformer-style reasoning run where you jump between platforms, clear enemy patrols, and solve mathematics and logic gates to unlock the summit.",
+  "version": "2.0.0",
+  "difficulty": "hard",
+  "schemaVersion": 2,
+  "gameType": "BOARD",
+  "levels": [
+    {
+      "levelNumber": 1,
+      "timeLimit": 120,
+      "bonusMultiplier": 1.2,
+      "movementStyle": "platformer",
+      "jumpHeight": 2,
+      "jumpDistance": 2,
+      "board": [
+        "............",
+        ".....T..G...",
+        "....##..##..",
+        "..T...T.....",
+        ".###..###...",
+        "S..T........",
+        "############"
+      ],
+      "tasks": [
+        {
+          "id": "task-ground-1",
+          "row": 5,
+          "col": 3,
+          "label": "Ground Gate",
+          "challenge": {
+            "prompt": "What is 15% of 240?",
+            "options": [
+              { "id": "a", "text": "24" },
+              { "id": "b", "text": "30" },
+              { "id": "c", "text": "36" },
+              { "id": "d", "text": "40" }
+            ],
+            "correctOptionId": "c",
+            "explanation": "10% of 240 is 24 and 5% is 12, so 15% is 36.",
+            "category": "mathematics",
+            "points": 60
+          }
+        },
+        {
+          "id": "task-mid-1",
+          "row": 3,
+          "col": 2,
+          "label": "Pattern Node",
+          "challenge": {
+            "prompt": "Choose the next number in the series: 3, 6, 12, 24, ?",
+            "options": [
+              { "id": "a", "text": "30" },
+              { "id": "b", "text": "36" },
+              { "id": "c", "text": "42" },
+              { "id": "d", "text": "48" }
+            ],
+            "correctOptionId": "d",
+            "explanation": "Each term doubles, so 24 becomes 48.",
+            "category": "logical reasoning",
+            "points": 70
+          }
+        },
+        {
+          "id": "task-mid-2",
+          "row": 3,
+          "col": 6,
+          "label": "Bridge Lock",
+          "challenge": {
+            "prompt": "If a coding team completes 3 modules every 2 days, how many modules do they complete in 8 days at the same rate?",
+            "options": [
+              { "id": "a", "text": "9" },
+              { "id": "b", "text": "12" },
+              { "id": "c", "text": "15" },
+              { "id": "d", "text": "18" }
+            ],
+            "correctOptionId": "b",
+            "explanation": "Eight days is four 2-day blocks, so 4 x 3 = 12.",
+            "category": "mathematics",
+            "points": 80
+          }
+        },
+        {
+          "id": "task-top-1",
+          "row": 1,
+          "col": 5,
+          "label": "Summit Gate",
+          "challenge": {
+            "prompt": "A statement is true if exactly one of these is true: P, Q. If P is true, what must Q be?",
+            "options": [
+              { "id": "a", "text": "True" },
+              { "id": "b", "text": "False" },
+              { "id": "c", "text": "Unknown" },
+              { "id": "d", "text": "Either true or false" }
+            ],
+            "correctOptionId": "b",
+            "explanation": "Exactly one true means Q must be false when P is true.",
+            "category": "logical reasoning",
+            "points": 90
+          }
+        }
+      ],
+      "enemies": [
+        {
+          "id": "enemy-1",
+          "row": 5,
+          "col": 7,
+          "movement": "horizontal",
+          "min": 6,
+          "max": 10,
+          "speed": 2,
+          "direction": "forward"
+        }
+      ]
+    },
+    {
+      "levelNumber": 2,
+      "timeLimit": 135,
+      "bonusMultiplier": 1.5,
+      "movementStyle": "platformer",
+      "jumpHeight": 2,
+      "jumpDistance": 2,
+      "board": [
+        "..............",
+        "....T.....G...",
+        "...###....##..",
+        "....T....T....",
+        "..#####.####..",
+        "S..T....T.....",
+        "##############"
+      ],
+      "tasks": [
+        {
+          "id": "task-ground-2a",
+          "row": 5,
+          "col": 3,
+          "label": "Speed Relay",
+          "challenge": {
+            "prompt": "A runner covers 180 meters in 15 seconds. What is the speed in meters per second?",
+            "options": [
+              { "id": "a", "text": "10" },
+              { "id": "b", "text": "12" },
+              { "id": "c", "text": "15" },
+              { "id": "d", "text": "18" }
+            ],
+            "correctOptionId": "b",
+            "explanation": "Speed = distance / time = 180 / 15 = 12.",
+            "category": "mathematics",
+            "points": 70
+          }
+        },
+        {
+          "id": "task-ground-2b",
+          "row": 5,
+          "col": 8,
+          "label": "Parity Door",
+          "challenge": {
+            "prompt": "Which number must replace X to keep the pattern consistent: 2, 5, 10, 17, X?",
+            "options": [
+              { "id": "a", "text": "24" },
+              { "id": "b", "text": "26" },
+              { "id": "c", "text": "28" },
+              { "id": "d", "text": "30" }
+            ],
+            "correctOptionId": "b",
+            "explanation": "The differences are +3, +5, +7, so the next difference is +9, giving 26.",
+            "category": "logical reasoning",
+            "points": 75
+          }
+        },
+        {
+          "id": "task-mid-2a",
+          "row": 3,
+          "col": 4,
+          "label": "Ratio Switch",
+          "challenge": {
+            "prompt": "If the ratio of boys to girls is 3:4 in a group of 28, how many girls are there?",
+            "options": [
+              { "id": "a", "text": "12" },
+              { "id": "b", "text": "14" },
+              { "id": "c", "text": "16" },
+              { "id": "d", "text": "18" }
+            ],
+            "correctOptionId": "c",
+            "explanation": "Total parts = 7. Each part is 4, so girls = 4 x 4 = 16.",
+            "category": "mathematics",
+            "points": 85
+          }
+        },
+        {
+          "id": "task-mid-2b",
+          "row": 3,
+          "col": 9,
+          "label": "Truth Gate",
+          "challenge": {
+            "prompt": "If all coders are thinkers and some thinkers are gamers, which statement must be true?",
+            "options": [
+              { "id": "a", "text": "All thinkers are coders" },
+              { "id": "b", "text": "Some gamers are coders" },
+              { "id": "c", "text": "All coders are thinkers" },
+              { "id": "d", "text": "No thinker is a gamer" }
+            ],
+            "correctOptionId": "c",
+            "explanation": "That is directly given in the premise.",
+            "category": "logical reasoning",
+            "points": 95
+          }
+        },
+        {
+          "id": "task-top-2",
+          "row": 1,
+          "col": 4,
+          "label": "Apex Lock",
+          "challenge": {
+            "prompt": "Solve: 7 + 3 x 4 - 6 = ?",
+            "options": [
+              { "id": "a", "text": "22" },
+              { "id": "b", "text": "19" },
+              { "id": "c", "text": "13" },
+              { "id": "d", "text": "10" }
+            ],
+            "correctOptionId": "c",
+            "explanation": "Apply multiplication first: 7 + 12 - 6 = 13.",
+            "category": "mathematics",
+            "points": 100
+          }
+        }
+      ],
+      "enemies": [
+        {
+          "id": "enemy-2a",
+          "row": 5,
+          "col": 10,
+          "movement": "horizontal",
+          "min": 8,
+          "max": 12,
+          "speed": 1,
+          "direction": "forward"
+        },
+        {
+          "id": "enemy-2b",
+          "row": 3,
+          "col": 9,
+          "movement": "horizontal",
+          "min": 8,
+          "max": 11,
+          "speed": 2,
+          "direction": "reverse"
+        }
+      ]
+    },
+    {
+      "levelNumber": 3,
+      "timeLimit": 150,
+      "bonusMultiplier": 1.8,
+      "movementStyle": "platformer",
+      "jumpHeight": 2,
+      "jumpDistance": 2,
+      "board": [
+        "................",
+        "...T....T..G....",
+        "..##...###.##...",
+        ".....T.....T....",
+        ".###..####..##..",
+        "S..T.....T......",
+        "################"
+      ],
+      "tasks": [
+        {
+          "id": "task-ground-3a",
+          "row": 5,
+          "col": 3,
+          "label": "Launch Code",
+          "challenge": {
+            "prompt": "A number is increased by 20% and becomes 96. What was the original number?",
+            "options": [
+              { "id": "a", "text": "72" },
+              { "id": "b", "text": "76" },
+              { "id": "c", "text": "80" },
+              { "id": "d", "text": "84" }
+            ],
+            "correctOptionId": "c",
+            "explanation": "Original x 1.2 = 96, so x = 80.",
+            "category": "mathematics",
+            "points": 85
+          }
+        },
+        {
+          "id": "task-ground-3b",
+          "row": 5,
+          "col": 9,
+          "label": "Inference Switch",
+          "challenge": {
+            "prompt": "If no red keys are silver and some silver keys are active, which statement is definitely true?",
+            "options": [
+              { "id": "a", "text": "Some active keys are red" },
+              { "id": "b", "text": "No red key is silver" },
+              { "id": "c", "text": "All active keys are silver" },
+              { "id": "d", "text": "Some red keys are active" }
+            ],
+            "correctOptionId": "b",
+            "explanation": "That is directly stated.",
+            "category": "logical reasoning",
+            "points": 90
+          }
+        },
+        {
+          "id": "task-mid-3a",
+          "row": 3,
+          "col": 5,
+          "label": "Vector Gate",
+          "challenge": {
+            "prompt": "Find the next value: 5, 9, 17, 33, ?",
+            "options": [
+              { "id": "a", "text": "49" },
+              { "id": "b", "text": "57" },
+              { "id": "c", "text": "65" },
+              { "id": "d", "text": "71" }
+            ],
+            "correctOptionId": "c",
+            "explanation": "Each term doubles and subtracts 1: 5 to 9, 9 to 17, 17 to 33, so 33 x 2 - 1 = 65.",
+            "category": "logical reasoning",
+            "points": 95
+          }
+        },
+        {
+          "id": "task-mid-3b",
+          "row": 3,
+          "col": 11,
+          "label": "Matrix Lock",
+          "challenge": {
+            "prompt": "A shop makes 25% profit after selling an item for 500. What was the cost price?",
+            "options": [
+              { "id": "a", "text": "375" },
+              { "id": "b", "text": "400" },
+              { "id": "c", "text": "425" },
+              { "id": "d", "text": "450" }
+            ],
+            "correctOptionId": "b",
+            "explanation": "Cost price = 500 / 1.25 = 400.",
+            "category": "mathematics",
+            "points": 100
+          }
+        },
+        {
+          "id": "task-top-3a",
+          "row": 1,
+          "col": 3,
+          "label": "Logic Crown",
+          "challenge": {
+            "prompt": "If every portal is coded and some coded nodes are unstable, which conclusion is valid?",
+            "options": [
+              { "id": "a", "text": "Some portals are unstable" },
+              { "id": "b", "text": "No coded node is stable" },
+              { "id": "c", "text": "Every portal is coded" },
+              { "id": "d", "text": "All unstable nodes are portals" }
+            ],
+            "correctOptionId": "c",
+            "explanation": "That statement is guaranteed by the premise.",
+            "category": "logical reasoning",
+            "points": 110
+          }
+        },
+        {
+          "id": "task-top-3b",
+          "row": 1,
+          "col": 8,
+          "label": "Algebra Crown",
+          "challenge": {
+            "prompt": "Solve for x: 3x + 7 = 31",
+            "options": [
+              { "id": "a", "text": "6" },
+              { "id": "b", "text": "7" },
+              { "id": "c", "text": "8" },
+              { "id": "d", "text": "9" }
+            ],
+            "correctOptionId": "c",
+            "explanation": "3x = 24, so x = 8.",
+            "category": "mathematics",
+            "points": 110
+          }
+        }
+      ],
+      "enemies": [
+        {
+          "id": "enemy-3a",
+          "row": 5,
+          "col": 11,
+          "movement": "horizontal",
+          "min": 9,
+          "max": 14,
+          "speed": 1,
+          "direction": "forward"
+        },
+        {
+          "id": "enemy-3b",
+          "row": 3,
+          "col": 6,
+          "movement": "horizontal",
+          "min": 5,
+          "max": 8,
+          "speed": 2,
+          "direction": "forward"
+        }
+      ]
+    }
+  ],
+  "timerConfig": {
+    "type": "countdown",
+    "duration": 120,
+    "warningAt": [30, 15, 5]
+  },
+  "scoringConfig": {
+    "basePoints": 45,
+    "bonusMultiplier": 1.25,
+    "penaltyPerHint": 0,
+    "penaltyPerWrong": 10,
+    "timeBonusFormula": "linear",
+    "timeBonusMultiplier": 2
+  },
+  "uiConfig": {
+    "theme": "system",
+    "primaryColor": "#0f766e",
+    "secondaryColor": "#f59e0b",
+    "iconSet": "lucide",
+    "layout": "fullscreen",
+    "showTimer": true,
+    "showScore": true,
+    "showProgress": true,
+    "smartboard": {
+      "enabled": true,
+      "allowFullscreen": true,
+      "autoScaleBoard": true,
+      "emphasizeControls": true
+    }
+  },
+  "interactionConfig": {
+    "inputMode": "hybrid",
+    "autoFocus": true
+  },
+  "metadata": {
+    "author": "TaPTaP Engine Team",
+    "createdAt": "2026-04-05T13:15:00.000Z",
+    "updatedAt": "2026-04-05T13:15:00.000Z",
+    "tags": ["platformer", "reasoning", "mathematics", "board", "advanced"],
+    "targetSkill": "Logical Reasoning and Mathematics",
+    "estimatedPlayTime": 10
+  },
+  "apiConfig": {
+    "leaderboardEndpoint": "/api/leaderboard/axiom-ascent-v1",
+    "scoreSubmitEndpoint": "/api/score"
+  },
+  "adaptiveConfig": {
+    "enabled": true,
+    "supportThreshold": 0.55,
+    "challengeThreshold": 0.9,
+    "timerAdjustmentSeconds": 12,
+    "multiplierAdjustment": 0.2,
+    "maxTimerAdjustmentSeconds": 30,
+    "minimumMultiplier": 0.75,
+    "maximumMultiplier": 2,
+    "adaptContent": true,
+    "adaptTimer": true,
+    "adaptScoring": true,
+    "adaptPenalties": true
+  },
+  "aiConfig": {
+    "enabled": true,
+    "provider": "local-template",
+    "fallbackToLocal": true
+  }
+}

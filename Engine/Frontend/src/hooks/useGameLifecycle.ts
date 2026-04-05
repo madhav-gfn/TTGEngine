@@ -6,9 +6,9 @@ import { leaderboardConnector } from "@/core/LeaderboardConnector";
 import { scoreEngine } from "@/core/ScoreEngine";
 import { timerEngine } from "@/core/TimerEngine";
 import { adaptiveEngine } from "@/core/AdaptiveEngine";
-import type { EngineError, GameAction, GameConfig, GameState, LeaderboardQuery, LevelResult } from "@/core/types";
+import type { AdaptiveBand, EngineError, GameAction, GameConfig, GameState, LeaderboardQuery, LevelResult } from "@/core/types";
 import { EMPTY_TIMER_TICK } from "@/lib/constants";
-import { generateGameVariant } from "@/lib/gameVariants";
+import { generateGameVariant, generateMidSessionLevel } from "@/lib/gameVariants";
 import {
   getOrCreateUserId,
 } from "@/lib/utils";
@@ -36,10 +36,13 @@ export function useGameLifecycle() {
   const completeLevelRef = useRef<(partial?: Partial<LevelResult>) => void>(() => undefined);
   const completionLockRef = useRef(false);
   const finalizingRef = useRef(false);
+  const nextLevelGenerationRef = useRef<Promise<void> | null>(null);
 
   function resetLifecycleLocks(): void {
     completionLockRef.current = false;
     finalizingRef.current = false;
+    nextLevelGenerationRef.current = null;
+    useGameStore.getState().setNextLevelGenerationState("idle");
   }
 
   function serializeLeaderboardKey(gameId: string, options: LeaderboardQuery): string {
@@ -143,12 +146,71 @@ export function useGameLifecycle() {
   }
 
   function prepareAdaptiveLevel(config: GameConfig, levelIndex: number) {
-    const plan = adaptiveEngine.prepareLevel(config, levelIndex);
     const store = useGameStore.getState();
+    const baseLevel = store.sessionLevels[levelIndex] ?? config.levels[levelIndex];
+    const plan = adaptiveEngine.prepareLevel(config, levelIndex, baseLevel);
     store.setSessionLevelAt(levelIndex, plan.level);
     store.setCurrentLevelRuntime(plan.runtime);
     store.setAdaptiveBand(plan.runtime.band);
     return plan;
+  }
+
+  function queueNextLevelGeneration(
+    config: GameConfig,
+    nextLevelIndex: number,
+    band: AdaptiveBand,
+    recentAccuracies: number[],
+  ): void {
+    if (!config.aiConfig?.enabled || nextLevelIndex >= config.levels.length) {
+      useGameStore.getState().setNextLevelGenerationState("idle");
+      nextLevelGenerationRef.current = null;
+      return;
+    }
+
+    const store = useGameStore.getState();
+    store.setNextLevelGenerationState(
+      "pending",
+      `Generating level ${nextLevelIndex + 1} in ${band === "challenge" ? "challenge" : band === "support" ? "support" : "balanced"} mode...`,
+    );
+
+    const generationPromise = generateMidSessionLevel(config.gameId, config, {
+      levelIndex: nextLevelIndex,
+      band,
+      seed: config.aiConfig.seed
+        ? `${config.aiConfig.seed}:${nextLevelIndex}:${store.adaptiveInsights.length}`
+        : `${config.gameId}:${nextLevelIndex}:${store.adaptiveInsights.length}`,
+      recentAccuracies,
+      completedLevels: store.currentLevelIndex + 1,
+    });
+
+    let trackedPromise: Promise<void>;
+    trackedPromise = generationPromise
+      .then(({ level, generation }) => {
+        const latestStore = useGameStore.getState();
+        if (latestStore.activeGameId !== config.gameId) {
+          return;
+        }
+        latestStore.setSessionLevelAt(nextLevelIndex, level);
+        latestStore.pushSessionGenerationLog(generation);
+        latestStore.setNextLevelGenerationState("idle");
+      })
+      .catch((error) => {
+        if (useGameStore.getState().activeGameId !== config.gameId) {
+          return;
+        }
+        useGameStore.getState().setNextLevelGenerationState(
+          "error",
+          error instanceof Error ? error.message : "Level generation failed. Using the base level.",
+        );
+        pushToast("Next level generation fell back to the base configuration.", "info");
+      })
+      .finally(() => {
+        if (nextLevelGenerationRef.current === trackedPromise) {
+          nextLevelGenerationRef.current = null;
+        }
+      });
+
+    nextLevelGenerationRef.current = trackedPromise;
   }
 
   async function refreshLeaderboard(gameId?: string, options: LeaderboardQuery = {
@@ -234,7 +296,12 @@ export function useGameLifecycle() {
     finalizingRef.current = false;
 
     const levelNumber = store.currentLevelIndex + 1;
-    const levelPlan = prepareAdaptiveLevel(config, store.currentLevelIndex);
+    const levelPlan = store.currentLevelRuntime?.levelIndex === store.currentLevelIndex
+      ? {
+        level: store.sessionLevels[store.currentLevelIndex] ?? config.levels[store.currentLevelIndex],
+        runtime: store.currentLevelRuntime,
+      }
+      : prepareAdaptiveLevel(config, store.currentLevelIndex);
     scoreEngine.startLevel(levelNumber, levelPlan.runtime.multiplier, {
       wrongPenaltyEnabled: levelPlan.runtime.wrongPenaltyEnabled,
     });
@@ -288,13 +355,14 @@ export function useGameLifecycle() {
       gameId: config.gameId,
       score: finalScore.totalScore,
       timeTaken: Math.max(0, Math.round(finalScore.timeTaken)),
-      level: config.levels.length,
+      level: store.sessionLevels.length,
       metadata: {
         accuracy: finalScore.accuracy,
         difficulty: config.difficulty,
         levelBreakdown: finalScore.levelScores,
         targetSkill: config.metadata?.targetSkill,
         adaptiveInsights: store.adaptiveInsights,
+        generationLog: store.sessionGenerationLog,
       },
     };
 
@@ -367,6 +435,12 @@ export function useGameLifecycle() {
       return;
     }
 
+    queueNextLevelGeneration(
+      config,
+      store.currentLevelIndex + 1,
+      insight.recommendedNextBand,
+      [...store.adaptiveInsights.slice(-2).map((entry) => entry.accuracy), levelScore.accuracy],
+    );
     transitionTo("LEVEL_END");
   }
 
@@ -379,9 +453,18 @@ export function useGameLifecycle() {
       return;
     }
 
-    store.setCurrentLevelIndex(Math.min(store.currentLevelIndex + 1, config.levels.length - 1));
-    store.setLevelSummary(null);
-    startCurrentLevel();
+    void (async () => {
+      if (nextLevelGenerationRef.current) {
+        await nextLevelGenerationRef.current;
+      }
+
+      const latestStore = useGameStore.getState();
+      const totalLevels = latestStore.sessionLevels.length || config.levels.length;
+      latestStore.setCurrentLevelIndex(Math.min(latestStore.currentLevelIndex + 1, totalLevels - 1));
+      latestStore.setLevelSummary(null);
+      latestStore.setNextLevelGenerationState("idle");
+      startCurrentLevel();
+    })();
   }
 
   function replayGame(): void {
@@ -408,6 +491,7 @@ export function useGameLifecycle() {
     useGameStore.getState().setFinalScore(null);
     useGameStore.getState().setLeaderboard([]);
     useGameStore.getState().setSubmissionResult(null);
+    useGameStore.getState().setNextLevelGenerationState("idle");
     useGameStore.getState().setError(null);
     transitionTo("READY");
   }

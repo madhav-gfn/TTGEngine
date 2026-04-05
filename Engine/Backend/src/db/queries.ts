@@ -30,6 +30,12 @@ interface LeaderboardQueryInput {
   period?: string;
 }
 
+interface UserScoreHistoryQueryInput {
+  userId: string;
+  limit: number;
+  gameId?: string;
+}
+
 export interface GameStatsRow {
   gameId: string;
   submissions: number;
@@ -44,6 +50,16 @@ export interface OverallStats {
   submissions: number;
   validSubmissions: number;
   players: number;
+}
+
+export interface UserScoreHistoryRow {
+  gameId: string;
+  score: number;
+  timeTaken: number;
+  level: number;
+  difficulty: string;
+  metadata: string | null;
+  submittedAt: string;
 }
 
 function buildWhereClause(input: LeaderboardQueryInput): { clause: string; params: Record<string, unknown> } {
@@ -268,4 +284,55 @@ export function getOverallStats(db: DatabaseHandle): OverallStats {
     validSubmissions: row.valid_submissions ?? 0,
     players: row.players,
   };
+}
+
+export function getUserScoreHistory(
+  db: DatabaseHandle,
+  input: UserScoreHistoryQueryInput,
+): UserScoreHistoryRow[] {
+  const clauses = ["user_id = @userId"];
+  const params: Record<string, unknown> = {
+    userId: input.userId,
+    limit: input.limit,
+  };
+
+  if (input.gameId) {
+    clauses.push("game_id = @gameId");
+    params.gameId = input.gameId;
+  }
+
+  const rows = db
+    .prepare(
+      `SELECT
+        game_id,
+        score,
+        time_taken,
+        level,
+        difficulty,
+        metadata,
+        submitted_at
+      FROM scores
+      WHERE ${clauses.join(" AND ")}
+      ORDER BY submitted_at DESC
+      LIMIT @limit`,
+    )
+    .all(params) as Array<{
+      game_id: string;
+      score: number;
+      time_taken: number;
+      level: number;
+      difficulty: string;
+      metadata: string | null;
+      submitted_at: string;
+    }>;
+
+  return rows.map((row) => ({
+    gameId: row.game_id,
+    score: row.score,
+    timeTaken: row.time_taken,
+    level: row.level,
+    difficulty: row.difficulty,
+    metadata: row.metadata,
+    submittedAt: row.submitted_at,
+  }));
 }

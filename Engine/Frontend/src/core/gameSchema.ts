@@ -194,6 +194,17 @@ export interface BoardTask {
   row: number;
   col: number;
   label: string;
+  challenge?: {
+    prompt: string;
+    options: Array<{
+      id: string;
+      text: string;
+    }>;
+    correctOptionId: string;
+    explanation?: string;
+    category?: string;
+    points?: number;
+  };
 }
 
 export interface BoardLegendEntry {
@@ -219,6 +230,9 @@ export interface BoardLevelConfig extends BaseLevelConfig {
   legend?: Record<string, BoardLegendEntry>;
   enemies?: BoardEnemy[];
   enemyCollisionPenalty?: number;
+  movementStyle?: "maze" | "platformer";
+  jumpHeight?: number;
+  jumpDistance?: number;
 }
 
 export interface CustomLevelConfig extends BaseLevelConfig {
@@ -583,6 +597,30 @@ const BoardTaskSchema = z.object({
   row: z.number().int().min(0),
   col: z.number().int().min(0),
   label: z.string().min(1),
+  challenge: z.object({
+    prompt: z.string().min(4).max(240),
+    options: z.array(z.object({
+      id: z.string().min(1),
+      text: z.string().min(1).max(160),
+    })).min(2).max(6),
+    correctOptionId: z.string().min(1),
+    explanation: z.string().max(280).optional(),
+    category: z.string().max(80).optional(),
+    points: z.number().int().min(1).max(1000).optional(),
+  }).optional(),
+}).superRefine((task, ctx) => {
+  if (!task.challenge) {
+    return;
+  }
+
+  const optionIds = task.challenge.options.map((option) => option.id);
+  if (!optionIds.includes(task.challenge.correctOptionId)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Board task challenge correctOptionId must match one of its option ids.",
+      path: ["challenge", "correctOptionId"],
+    });
+  }
 });
 
 const BoardLegendEntrySchema = z.object({
@@ -608,6 +646,9 @@ const BoardLevelSchema = BaseLevelSchema.extend({
   legend: z.record(BoardLegendEntrySchema).optional(),
   enemies: z.array(BoardEnemySchema).optional(),
   enemyCollisionPenalty: z.number().int().min(0).max(1000).optional(),
+  movementStyle: z.enum(["maze", "platformer"]).default("maze"),
+  jumpHeight: z.number().int().min(1).max(4).default(2),
+  jumpDistance: z.number().int().min(1).max(4).default(2),
 }).superRefine((level, ctx) => {
   const width = level.board[0]?.length ?? 0;
   if (width === 0) {

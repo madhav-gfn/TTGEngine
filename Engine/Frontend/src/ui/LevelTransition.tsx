@@ -5,62 +5,76 @@ interface LevelTransitionProps {
   score: LevelScore;
   currentLevel: number;
   totalLevels: number;
+  generationStatus?: "idle" | "pending" | "error";
+  generationMessage?: string | null;
   onNext: () => void;
 }
 
 function StarRating({ accuracy }: { accuracy: number }) {
   const stars = accuracy >= 0.9 ? 3 : accuracy >= 0.6 ? 2 : 1;
   return (
-    <div className="flex gap-1 justify-center text-2xl">
-      {[1, 2, 3].map((i) => (
-        <span key={i} className={i <= stars ? "opacity-100" : "opacity-25"}>⭐</span>
+    <div className="flex justify-center gap-1 text-2xl">
+      {[1, 2, 3].map((index) => (
+        <span key={index} className={index <= stars ? "opacity-100" : "opacity-25"}>*</span>
       ))}
     </div>
   );
 }
 
-export function LevelTransition({ score, currentLevel, totalLevels, onNext }: LevelTransitionProps) {
+export function LevelTransition({
+  score,
+  currentLevel,
+  totalLevels,
+  generationStatus = "idle",
+  generationMessage = null,
+  onNext,
+}: LevelTransitionProps) {
   const isLast = currentLevel >= totalLevels;
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-[60vh] animate-scale-in">
-      <div className="bg-white rounded-3xl border border-gray-100 shadow-card-lg p-10 text-center max-w-sm w-full space-y-6">
-        {/* Trophy */}
-        <div className="w-20 h-20 mx-auto rounded-2xl bg-gradient-to-br from-teal-50 to-teal-100 border border-teal-200 flex items-center justify-center text-4xl">
-          {isLast ? "🏆" : "✅"}
+    <div className="flex min-h-[60vh] flex-col items-center justify-center animate-scale-in">
+      <div className="w-full max-w-sm space-y-6 rounded-3xl border border-gray-100 bg-white p-10 text-center shadow-card-lg">
+        <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-2xl border border-teal-200 bg-gradient-to-br from-teal-50 to-teal-100 text-4xl">
+          {isLast ? "T" : "+"}
         </div>
 
         <div>
           <p className="eyebrow mb-1">Level {currentLevel} Cleared!</p>
-          <h2 className="font-display font-bold text-2xl text-ink">
+          <h2 className="font-display text-2xl font-bold text-ink">
             {isLast ? "All Levels Done!" : `On to Level ${currentLevel + 1}`}
           </h2>
         </div>
 
         <StarRating accuracy={score.accuracy} />
 
-        {/* Score breakdown */}
-        <div className="bg-gray-50 rounded-2xl p-5 space-y-2.5 text-sm">
-          <div className="flex justify-between items-center">
+        <div className="space-y-2.5 rounded-2xl bg-gray-50 p-5 text-sm">
+          <div className="flex items-center justify-between">
             <span className="text-ink-muted">Level Score</span>
             <span className="font-bold text-ink tabular-nums">{score.levelTotal.toLocaleString()} pts</span>
           </div>
-          <div className="flex justify-between items-center">
+          <div className="flex items-center justify-between">
             <span className="text-ink-muted">Accuracy</span>
             <span className="font-bold text-ink">{Math.round(score.accuracy * 100)}%</span>
           </div>
-          <div className="flex justify-between items-center">
+          <div className="flex items-center justify-between">
             <span className="text-ink-muted">Time</span>
             <span className="font-bold text-ink">{formatDuration(score.timeTaken)}</span>
           </div>
         </div>
 
+        {generationMessage ? (
+          <p className={`text-xs ${generationStatus === "error" ? "text-amber-600" : "text-ink-muted"}`}>
+            {generationMessage}
+          </p>
+        ) : null}
+
         <button
           type="button"
-          className="btn-primary btn-lg w-full"
+          className="btn-primary btn-lg w-full disabled:opacity-60"
           onClick={onNext}
+          disabled={!isLast && generationStatus === "pending"}
         >
-          {isLast ? "View Results →" : "Next Level →"}
+          {isLast ? "View Results ->" : generationStatus === "pending" ? "Generating Next Level..." : "Next Level ->"}
         </button>
       </div>
     </div>

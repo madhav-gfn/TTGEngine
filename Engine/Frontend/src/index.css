@@ -440,12 +440,28 @@
            transition-all duration-150;
   }
 
+  .board-tile.is-platformer {
+    @apply bg-sky-50 border-sky-100;
+  }
+
   .board-tile.is-wall {
     @apply bg-ink/80 border-ink/80 text-white;
   }
 
+  .board-tile.is-platformer.is-wall {
+    @apply bg-gradient-to-b from-slate-700 to-slate-900 border-slate-700 text-slate-100;
+  }
+
   .board-tile.is-goal {
     @apply bg-amber-100 border-amber-300 text-amber-700;
+  }
+
+  .board-tile.is-start {
+    @apply bg-emerald-50 border-emerald-200 text-emerald-700;
+  }
+
+  .board-tile.is-task {
+    @apply bg-violet-50 border-violet-200 text-violet-700;
   }
 
   .board-tile.is-player {
@@ -470,6 +486,10 @@
 
   .board-grid-smartboard {
     gap: 10px;
+  }
+
+  .board-grid-platformer {
+    @apply rounded-2xl border border-sky-100 bg-gradient-to-b from-sky-100 via-cyan-50 to-white p-3;
   }
 
   .board-controls-smartboard button {

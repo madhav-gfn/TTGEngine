@@ -57,6 +57,7 @@ export const API_ENDPOINTS = {
   games: resolveApiEndpoint("/api/games"),
   score: resolveApiEndpoint("/api/score"),
   leaderboard: resolveApiEndpoint("/api/leaderboard"),
+  analytics: resolveApiEndpoint("/api/analytics"),
   admin: resolveApiEndpoint("/api/admin"),
 } as const;
 

@@ -179,6 +179,62 @@ export interface AdaptiveInsight {
   summary: string;
 }
 
+export type GenerationStatus = "idle" | "pending" | "error";
+
+export interface SessionGenerationEntry {
+  levelIndex: number;
+  levelNumber: number;
+  band: SharedAdaptiveBand;
+  source: "local-template" | "openai-compatible";
+  scope: "variant" | "mid-session";
+  summary: string;
+  generatedAt: string;
+  seed: string;
+  strategy: string;
+}
+
+export interface SkillAnalyticsSession {
+  gameId: string;
+  skill: string;
+  score: number;
+  accuracy: number;
+  difficulty: SharedDifficulty;
+  submittedAt: string;
+  timeTaken: number;
+  levelCount: number;
+  supportMoments: number;
+  challengeMoments: number;
+  standardMoments: number;
+  generatedLevels: number;
+}
+
+export interface SkillAnalyticsSkill {
+  skill: string;
+  sessionsPlayed: number;
+  averageScore: number;
+  bestScore: number;
+  averageAccuracy: number;
+  recentAccuracy: number;
+  accuracyDelta: number;
+  supportMoments: number;
+  challengeMoments: number;
+  mastery: "emerging" | "growing" | "strong";
+  strongestGameId: string | null;
+  lastPlayedAt: string | null;
+  recommendedFocus: string;
+}
+
+export interface SkillAnalyticsSnapshot {
+  userId: string;
+  updatedAt: string;
+  totalSessions: number;
+  trackedSkills: number;
+  strongestSkill: string | null;
+  focusSkill: string | null;
+  skills: SkillAnalyticsSkill[];
+  recentSessions: SkillAnalyticsSession[];
+}
+
 export interface ScoreState {
   currentLevel: number;
   totalScore: number;

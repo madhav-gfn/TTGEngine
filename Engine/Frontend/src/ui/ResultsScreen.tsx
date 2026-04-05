@@ -1,8 +1,18 @@
 import { useEffect, useState } from "react";
-import type { AdaptiveInsight, FinalScore, GameConfig, LeaderboardEntry, LeaderboardQuery, SubmissionResult } from "@/core/types";
+import type {
+  AdaptiveInsight,
+  FinalScore,
+  GameConfig,
+  LeaderboardEntry,
+  LeaderboardQuery,
+  SessionGenerationEntry,
+  SubmissionResult,
+} from "@/core/types";
 import { useLeaderboard } from "@/hooks/useLeaderboard";
-import { formatDuration } from "@/lib/utils";
+import { useSkillAnalytics } from "@/hooks/useSkillAnalytics";
+import { formatDuration, getOrCreateUserId } from "@/lib/utils";
 import { LeaderboardView } from "./LeaderboardView";
+import { SkillAnalyticsPanel } from "./SkillAnalyticsPanel";
 
 interface ResultsScreenProps {
   config: GameConfig;
@@ -10,6 +20,7 @@ interface ResultsScreenProps {
   leaderboard: LeaderboardEntry[];
   submissionResult: SubmissionResult | null;
   adaptiveInsights?: AdaptiveInsight[];
+  generationLog?: SessionGenerationEntry[];
   onReplay: () => void;
   onBack: () => void;
 }
@@ -41,10 +52,16 @@ export function ResultsScreen({
   leaderboard,
   submissionResult,
   adaptiveInsights = [],
+  generationLog = [],
   onReplay,
   onBack,
 }: ResultsScreenProps) {
   const { loadLeaderboard } = useLeaderboard();
+  const userId = getOrCreateUserId();
+  const { analytics, loading: analyticsLoading, error: analyticsError } = useSkillAnalytics(userId, {
+    limit: 12,
+    gameId: config.gameId,
+  });
   const [filters, setFilters] = useState<LeaderboardQuery>({
     difficulty: "all",
     period: "all",
@@ -215,6 +232,15 @@ export function ResultsScreen({
           </div>
         </div>
       ) : null}
+
+      <SkillAnalyticsPanel
+        title="Skill Progress"
+        analytics={analytics}
+        loading={analyticsLoading}
+        error={analyticsError}
+        highlightSkill={config.metadata?.targetSkill}
+        generationLog={generationLog}
+      />
 
       <div className="flex items-center justify-center gap-4">
         <button type="button" className="btn-primary btn-lg" onClick={onReplay}>

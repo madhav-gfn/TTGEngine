@@ -39,6 +39,55 @@ describe("boardCommandAdapter", () => {
 
     expect(outcome.completion?.completed).toBe(true);
   });
+
+  it("supports platformer jumps and pauses task collection for challenge gates", () => {
+    const engine = new CommandEngine(boardCommandAdapter);
+    const level = {
+      levelNumber: 1,
+      movementStyle: "platformer" as const,
+      jumpHeight: 2,
+      jumpDistance: 2,
+      board: [
+        ".....",
+        "..T..",
+        ".##..",
+        "S....",
+        "#####",
+      ],
+      tasks: [
+        {
+          id: "challenge-1",
+          row: 1,
+          col: 2,
+          label: "Challenge",
+          challenge: {
+            prompt: "2 + 2 = ?",
+            options: [
+              { id: "a", text: "3" },
+              { id: "b", text: "4" },
+            ],
+            correctOptionId: "b",
+          },
+        },
+      ],
+    };
+
+    const session = engine.createSession({
+      level,
+      basePoints: 10,
+    });
+
+    const outcome = engine.dispatch(session, { type: "move", direction: "up" }, {
+      level,
+      basePoints: 10,
+    });
+
+    expect(outcome.session.row).toBe(1);
+    expect(outcome.session.col).toBe(2);
+    expect(outcome.session.collectedTaskIds).toHaveLength(0);
+    expect(outcome.action).toBeUndefined();
+    expect(outcome.announcement).toContain("Challenge unlocked");
+  });
 });
 
 describe("dragDropCommandAdapter", () => {

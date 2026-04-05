@@ -332,8 +332,12 @@ export class AdaptiveEngine {
     this.insights = [];
   }
 
-  prepareLevel(gameConfig: GameConfig, levelIndex: number): { level: LevelConfig; runtime: AdaptiveLevelRuntime } {
-    const baseLevel = gameConfig.levels[levelIndex];
+  prepareLevel(
+    gameConfig: GameConfig,
+    levelIndex: number,
+    baseLevelOverride?: LevelConfig,
+  ): { level: LevelConfig; runtime: AdaptiveLevelRuntime } {
+    const baseLevel = baseLevelOverride ?? gameConfig.levels[levelIndex];
     const baseTimer = getLevelTimerConfig(gameConfig, levelIndex);
     const baseMultiplier = getLevelMultiplier(gameConfig, levelIndex);
     const baseWrongPenaltyEnabled = isWrongPenaltyEnabledForLevel(gameConfig, levelIndex);
