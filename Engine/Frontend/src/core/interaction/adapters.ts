@@ -1,5 +1,6 @@
 import {
   type BoardEnemy,
+  getBoardCheckpointPositions,
   getBoardGoal,
   getBoardStart,
   getBoardTaskPositions,
@@ -13,10 +14,13 @@ export interface BoardSession extends InteractionSession {
   row: number;
   col: number;
   collectedTaskIds: string[];
+  activatedCheckpointIds: string[];
   completed: boolean;
   enemies: Array<BoardEnemy & { directionStep: -1 | 1 }>;
   moveCount: number;
   collisions: number;
+  respawnRow: number;
+  respawnCol: number;
 }
 
 export interface BoardAdapterContext {
@@ -94,6 +98,7 @@ export const boardCommandAdapter: CommandAdapter<BoardSession, BoardAdapterConte
       row: start.row,
       col: start.col,
       collectedTaskIds: [],
+      activatedCheckpointIds: [],
       completed: false,
       enemies: (level.enemies ?? []).map((enemy) => ({
         ...enemy,
@@ -101,6 +106,8 @@ export const boardCommandAdapter: CommandAdapter<BoardSession, BoardAdapterConte
       })),
       moveCount: 0,
       collisions: 0,
+      respawnRow: start.row,
+      respawnCol: start.col,
       focusZone: "board",
       focusIndex: 0,
       heldItemId: null,
@@ -130,41 +137,63 @@ export const boardCommandAdapter: CommandAdapter<BoardSession, BoardAdapterConte
     }
 
     const tasks = getBoardTaskPositions(context.level);
+    const checkpoints = getBoardCheckpointPositions(context.level);
+    const requiredCheckpointIds = checkpoints
+      .filter((checkpoint) => checkpoint.required !== false)
+      .map((checkpoint) => checkpoint.id);
     const collidedBeforeEnemyMove = session.enemies.some((enemy) => enemy.row === nextRow && enemy.col === nextCol);
     const nextTask = tasks.find((task) => task.row === nextRow && task.col === nextCol);
+    const nextCheckpoint = checkpoints.find((checkpoint) => checkpoint.row === nextRow && checkpoint.col === nextCol);
     const goal = getBoardGoal(context.level);
     const collectedTaskIds = nextTask && !session.collectedTaskIds.includes(nextTask.id)
       ? [...session.collectedTaskIds, nextTask.id]
       : session.collectedTaskIds;
+    const activatedCheckpointIds = nextCheckpoint && !session.activatedCheckpointIds.includes(nextCheckpoint.id)
+      ? [...session.activatedCheckpointIds, nextCheckpoint.id]
+      : session.activatedCheckpointIds;
     const moveCount = session.moveCount + 1;
     const enemies = session.enemies.map((enemy) => (
       moveCount % (enemy.speed ?? 1) === 0 ? moveEnemy(enemy, context.level) : enemy
     ));
     const collidedAfterEnemyMove = enemies.some((enemy) => enemy.row === nextRow && enemy.col === nextCol);
     const collided = collidedBeforeEnemyMove || collidedAfterEnemyMove;
-    const start = getBoardStart(context.level);
+    const respawnRow = nextCheckpoint && !session.activatedCheckpointIds.includes(nextCheckpoint.id)
+      ? nextRow
+      : session.respawnRow;
+    const respawnCol = nextCheckpoint && !session.activatedCheckpointIds.includes(nextCheckpoint.id)
+      ? nextCol
+      : session.respawnCol;
     const completed =
       !collided &&
       nextRow === goal.row &&
       nextCol === goal.col &&
-      collectedTaskIds.length === tasks.length;
+      collectedTaskIds.length === tasks.length &&
+      requiredCheckpointIds.every((checkpointId) => activatedCheckpointIds.includes(checkpointId));
+
+    const reachedNewTask = Boolean(nextTask && !session.collectedTaskIds.includes(nextTask.id));
+    const reachedNewCheckpoint = Boolean(nextCheckpoint && !session.activatedCheckpointIds.includes(nextCheckpoint.id));
 
     return {
       session: {
         ...session,
-        row: collided ? start.row : nextRow,
-        col: collided ? start.col : nextCol,
+        row: collided ? session.respawnRow : nextRow,
+        col: collided ? session.respawnCol : nextCol,
         collectedTaskIds,
+        activatedCheckpointIds,
         completed,
         enemies,
         moveCount,
         collisions: collided ? session.collisions + 1 : session.collisions,
+        respawnRow,
+        respawnCol,
       },
       handled: true,
       announcement: collided
-        ? "Enemy caught you. Returning to start."
-        : nextTask && !session.collectedTaskIds.includes(nextTask.id)
-          ? `Collected ${nextTask.label}`
+        ? "Enemy caught you. Returning to the latest checkpoint."
+        : reachedNewCheckpoint
+          ? `Checkpoint reached: ${nextCheckpoint?.label ?? "Checkpoint"}`
+          : reachedNewTask
+          ? `Collected ${nextTask?.label ?? "task"}`
           : undefined,
       action: collided
         ? {
@@ -172,11 +201,17 @@ export const boardCommandAdapter: CommandAdapter<BoardSession, BoardAdapterConte
           points: 0,
           metadata: { reason: "enemy_collision" },
         }
-        : nextTask && !session.collectedTaskIds.includes(nextTask.id)
+        : reachedNewCheckpoint
           ? {
             type: "correct",
             points: context.basePoints,
-            metadata: { taskId: nextTask.id },
+            metadata: { checkpointId: nextCheckpoint?.id },
+          }
+          : reachedNewTask
+          ? {
+            type: "correct",
+            points: context.basePoints,
+            metadata: { taskId: nextTask?.id ?? "task" },
           }
           : undefined,
       completion: completed
@@ -184,6 +219,7 @@ export const boardCommandAdapter: CommandAdapter<BoardSession, BoardAdapterConte
           completed: true,
           metadata: {
             collectedTaskIds,
+            activatedCheckpointIds,
           },
         }
         : undefined,

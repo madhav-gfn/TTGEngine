@@ -2,6 +2,8 @@ import { Router } from "express";
 import { db } from "../db/connection.js";
 import { getGameStatsRows, getOverallStats, getLeaderboard } from "../db/queries.js";
 import { createGameConfig, deleteGameConfig, listGameConfigDirectories, loadGameManifest, loadRawGameConfigById, updateGameConfig } from "../lib/gameConfigs.js";
+import { draftGameWithAi, expandLevelsWithAi } from "../lib/aiAuthoring.js";
+import { parseGameConfig } from "../lib/gameSchema.js";
 import { requireAdmin } from "../middleware/requireAdmin.js";
 
 export const adminRouter = Router();
@@ -130,6 +132,59 @@ adminRouter.delete("/games/:gameId", (req, res) => {
       success: false,
       error: {
         code: "DELETE_GAME_FAILED",
+        message,
+      },
+    });
+  }
+});
+
+adminRouter.post("/ai/game", async (req, res) => {
+  try {
+    const generated = await draftGameWithAi({
+      prompt: typeof req.body?.prompt === "string" ? req.body.prompt : "",
+      gameType: req.body?.gameType,
+      difficulty: req.body?.difficulty,
+      targetSkill: typeof req.body?.targetSkill === "string" ? req.body.targetSkill : "problem solving",
+      aiProvider: req.body?.aiProvider,
+      customRendererKind: req.body?.customRendererKind,
+    });
+
+    res.json({
+      success: true,
+      data: generated,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to draft game with AI.";
+    res.status(400).json({
+      success: false,
+      error: {
+        code: "AI_GAME_DRAFT_FAILED",
+        message,
+      },
+    });
+  }
+});
+
+adminRouter.post("/ai/levels", async (req, res) => {
+  try {
+    const config = parseGameConfig(req.body?.config);
+    const generated = await expandLevelsWithAi({
+      config,
+      prompt: typeof req.body?.prompt === "string" ? req.body.prompt : "",
+      count: Number(req.body?.count) || 1,
+      aiProvider: req.body?.aiProvider,
+    });
+
+    res.json({
+      success: true,
+      data: generated,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to generate levels with AI.";
+    res.status(400).json({
+      success: false,
+      error: {
+        code: "AI_LEVEL_GENERATION_FAILED",
         message,
       },
     });

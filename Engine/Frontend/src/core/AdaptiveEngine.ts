@@ -259,7 +259,7 @@ function adaptLevel(level: LevelConfig, band: AdaptiveBand): LevelConfig {
     return adaptWordLevel(level, band);
   }
 
-  if ("board" in level) {
+  if ("board" in level && !("objective" in level)) {
     return adaptBoardLevel(level, band);
   }
 

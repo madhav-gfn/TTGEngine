@@ -68,4 +68,6 @@ export const runtimeConfig = {
   aiApiKey: (process.env.AI_API_KEY ?? "").trim(),
   aiBaseUrl: (process.env.AI_BASE_URL ?? "").trim(),
   aiModel: (process.env.AI_MODEL ?? "").trim(),
+  googleGenAiApiKey: (process.env.GOOGLE_GENAI_API_KEY ?? "").trim(),
+  googleGenAiModel: (process.env.GOOGLE_GENAI_MODEL ?? "gemini-3.1-flash-lite-preview").trim(),
 };

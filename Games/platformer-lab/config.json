@@ -1,0 +1,107 @@
+{
+  "schemaVersion": 2,
+  "gameId": "platformer-lab",
+  "gameType": "CUSTOM",
+  "title": "Platformer Lab",
+  "description": "A custom-rendered platformer that extends the board runner with checkpoints and collectible orbs.",
+  "version": "1.0.0",
+  "difficulty": "medium",
+  "levels": [
+    {
+      "levelNumber": 1,
+      "name": "Orb Sprint",
+      "objective": "Collect both orbs, activate the checkpoint, and reach the portal.",
+      "instruction": "Move across the board, avoid the patrol, and use the checkpoint as your safety anchor.",
+      "successText": "Portal stabilized.",
+      "renderer": {
+        "kind": "platformer",
+        "strategy": "extend-board",
+        "title": "Platformer"
+      },
+      "boardGoalText": "Portal",
+      "board": [
+        "S..T..",
+        ".#C#..",
+        "...T..",
+        ".....G"
+      ],
+      "boardTasks": [
+        { "id": "task-1", "row": 0, "col": 3, "label": "Orb 1" },
+        { "id": "task-2", "row": 2, "col": 3, "label": "Orb 2" }
+      ],
+      "boardCheckpoints": [
+        { "id": "checkpoint-1", "row": 1, "col": 2, "label": "Midway Gate", "required": true }
+      ],
+      "enemies": [
+        { "id": "enemy-1", "row": 2, "col": 1, "movement": "horizontal", "min": 0, "max": 4, "speed": 2, "direction": "forward" }
+      ]
+    },
+    {
+      "levelNumber": 2,
+      "name": "Sky Gate",
+      "objective": "Reach the sky gate after clearing the orb route.",
+      "instruction": "This route adds one more orb and a longer enemy patrol.",
+      "successText": "Gate unlocked.",
+      "renderer": {
+        "kind": "platformer",
+        "strategy": "extend-board",
+        "title": "Platformer"
+      },
+      "boardGoalText": "Sky Gate",
+      "board": [
+        "S..T...",
+        ".#..#..",
+        "..C.T..",
+        ".#.....",
+        "......G"
+      ],
+      "boardTasks": [
+        { "id": "task-1", "row": 0, "col": 3, "label": "Orb 1" },
+        { "id": "task-2", "row": 2, "col": 4, "label": "Orb 2" }
+      ],
+      "boardCheckpoints": [
+        { "id": "checkpoint-1", "row": 2, "col": 2, "label": "Checkpoint", "required": true }
+      ],
+      "enemies": [
+        { "id": "enemy-1", "row": 3, "col": 2, "movement": "horizontal", "min": 1, "max": 5, "speed": 1, "direction": "forward" }
+      ]
+    }
+  ],
+  "timerConfig": { "type": "countdown", "duration": 120, "warningAt": [30, 10, 5] },
+  "scoringConfig": { "basePoints": 80, "bonusMultiplier": 1, "penaltyPerHint": 5, "penaltyPerWrong": 0, "timeBonusFormula": "linear", "timeBonusMultiplier": 1 },
+  "uiConfig": {
+    "theme": "system",
+    "primaryColor": "#0f766e",
+    "secondaryColor": "#f59e0b",
+    "iconSet": "lucide",
+    "layout": "fullscreen",
+    "showTimer": true,
+    "showScore": true,
+    "showProgress": true,
+    "smartboard": { "enabled": true, "allowFullscreen": true, "autoScaleBoard": true, "emphasizeControls": true }
+  },
+  "metadata": {
+    "author": "TaPTaP Engine Team",
+    "createdAt": "2026-04-05T00:00:00.000Z",
+    "updatedAt": "2026-04-05T00:00:00.000Z",
+    "tags": ["custom", "platformer", "board", "ai-ready"],
+    "targetSkill": "algorithms",
+    "estimatedPlayTime": 6
+  },
+  "apiConfig": { "leaderboardEndpoint": "/api/leaderboard/platformer-lab", "scoreSubmitEndpoint": "/api/score" },
+  "adaptiveConfig": {
+    "enabled": true,
+    "supportThreshold": 0.55,
+    "challengeThreshold": 0.9,
+    "timerAdjustmentSeconds": 12,
+    "multiplierAdjustment": 0.2,
+    "maxTimerAdjustmentSeconds": 30,
+    "minimumMultiplier": 0.75,
+    "maximumMultiplier": 2,
+    "adaptContent": true,
+    "adaptTimer": true,
+    "adaptScoring": true,
+    "adaptPenalties": true
+  },
+  "aiConfig": { "enabled": true, "provider": "local-template", "fallbackToLocal": true }
+}

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import aptitudeBlitz from "../../../../Games/aptitude-blitz/config.json";
+import mathOrbit from "../../../../Games/math-orbit/config.json";
 import mazeRunner from "../../../../Games/maze-runner-v2/config.json";
+import platformerLab from "../../../../Games/platformer-lab/config.json";
 import sortSprint from "../../../../Games/sort-sprint-v2/config.json";
 import sudoku from "../../../../Games/sudoku/config.json";
 import wordBuilder from "../../../../Games/word-builder/config.json";
@@ -39,5 +41,15 @@ describe("shared config validation and normalization", () => {
       const firstLevel = result.data.levels[0];
       expect("board" in firstLevel && firstLevel.enemies?.length).toBeGreaterThan(0);
     }
+  });
+
+  it("accepts native platformer and math showcase configs", () => {
+    [platformerLab, mathOrbit].forEach((config) => {
+      const result = validateGameConfig(config);
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(["PLATFORMER", "MATH"]).toContain(result.data.gameType);
+      }
+    });
   });
 });

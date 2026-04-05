@@ -10,6 +10,8 @@ const GAME_TYPE_COLORS: Record<string, string> = {
   GRID: "bg-teal-100 text-teal-700",
   DRAG_DROP: "bg-orange-100 text-orange-700",
   BOARD: "bg-pink-100 text-pink-700",
+  PLATFORMER: "bg-rose-100 text-rose-700",
+  MATH: "bg-amber-100 text-amber-700",
   CUSTOM: "bg-gray-100 text-gray-700",
 };
 
@@ -20,6 +22,8 @@ const FILTER_OPTIONS = [
   { key: "GRID", label: "Grid" },
   { key: "DRAG_DROP", label: "Drag & Drop" },
   { key: "BOARD", label: "Board" },
+  { key: "PLATFORMER", label: "Platformer" },
+  { key: "MATH", label: "Math" },
 ];
 
 function DifficultyBadge({ difficulty }: { difficulty?: string }) {

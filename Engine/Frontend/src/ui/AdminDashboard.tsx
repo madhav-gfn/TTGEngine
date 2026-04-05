@@ -1,9 +1,11 @@
-﻿import { useEffect, useMemo, useState } from "react";
-import type { AdaptiveBand } from "@/core/types";
+import { useEffect, useMemo, useState } from "react";
+import type { CustomRendererKind } from "@/core/types";
 import { ApiError } from "@/lib/api";
 import {
   createAdminGame,
   deleteAdminGame,
+  generateAdminGameDraft,
+  generateAdminLevels,
   getAdminGame,
   getAdminOverview,
   updateAdminGame,
@@ -13,7 +15,12 @@ import { useGameStore } from "@/store/gameStore";
 import { Button } from "./shared/Button";
 
 type Difficulty = "easy" | "medium" | "hard";
-type GameType = "MCQ" | "WORD" | "GRID" | "DRAG_DROP" | "BOARD" | "CUSTOM";
+type GameType = "MCQ" | "WORD" | "GRID" | "DRAG_DROP" | "BOARD" | "PLATFORMER" | "MATH";
+type AIProvider = "local-template" | "openai-compatible" | "google-genai";
+type Tile = { row: number; col: number };
+type EnemyPatrolRow = { row: number; col: number; movement: "horizontal" | "vertical"; min: number; max: number; speed: number };
+
+const LEARNING_OUTCOMES = ["problem solving", "attention to detail", "focus", "algorithms", "vocabulary"] as const;
 
 interface CoreFormState {
   schemaVersion: 1 | 2;
@@ -43,415 +50,160 @@ interface CoreFormState {
   adaptiveTimerAdjustmentSeconds: number;
   adaptiveMultiplierAdjustment: number;
   aiEnabled: boolean;
-  aiProvider: "local-template" | "openai-compatible";
+  aiProvider: AIProvider;
   smartboardEnabled: boolean;
   smartboardFullscreen: boolean;
+  customRendererKind: CustomRendererKind;
 }
 
-interface LevelBase {
-  levelNumber: number;
-  timeLimit?: number;
-  bonusMultiplier?: number;
-}
-
-interface MCQLevelForm extends LevelBase {
-  question: string;
-  optionCount: 2 | 3 | 4;
-  optionA: string;
-  optionB: string;
-  optionC: string;
-  optionD: string;
-  correctOptionId: "A" | "B" | "C" | "D";
-  shuffleQuestions: boolean;
-  shuffleOptions: boolean;
-  negativeMarking: boolean;
-}
-
-interface WordLevelForm extends LevelBase {
-  availableLettersText: string;
-  wordsText: string;
-}
-
-interface GridLevelForm extends LevelBase {
-  gridSize: number;
-  cluesCount: number;
-}
-
-interface DragDropLevelForm extends LevelBase {
-  itemsText: string;
-  targetsText: string;
-}
-
-interface BoardLevelForm extends LevelBase {
-  rows: number;
-  cols: number;
-  blockagesText: string;
-  tasksText: string;
-  enemyPatrolsText: string;
-}
-
+interface LevelBase { levelNumber: number; timeLimit?: number; bonusMultiplier?: number }
+interface MCQLevelForm extends LevelBase { question: string; optionA: string; optionB: string; optionC: string; optionD: string; correctOptionId: "A" | "B" | "C" | "D" }
+interface WordLevelForm extends LevelBase { availableLettersText: string; wordsText: string }
+interface GridLevelForm extends LevelBase { gridSize: number; cluesCount: number }
+interface DragDropLevelForm extends LevelBase { itemsText: string; targetsText: string }
+interface BoardLevelForm extends LevelBase { rows: number; cols: number; blockagesText: string; tasksText: string; checkpointsText: string; enemyPatrolsText: string }
 interface CustomLevelForm extends LevelBase {
-  levelName: string;
-  objective: string;
-  instruction: string;
-  successText: string;
-  checkpointsText: string;
+  levelName: string; objective: string; instruction: string; successText: string; rendererKind: CustomRendererKind;
+  scenarioCheckpointsText: string; boardRows: number; boardCols: number; boardBlockagesText: string; boardTasksText: string; boardCheckpointsText: string;
+  enemyPatrolsText: string; promptsText: string; passingScore: number;
 }
 
-function splitCsv(value: string): string[] {
-  return value
-    .split(",")
-    .map((token) => token.trim())
-    .filter(Boolean);
-}
+const splitCsv = (value: string) => value.split(",").map((token) => token.trim()).filter(Boolean);
+const splitLines = (value: string) => value.split(/\r?\n/).map((token) => token.trim()).filter(Boolean);
+const assignLevelNumbers = <T extends LevelBase>(levels: T[]) => levels.map((level, index) => ({ ...level, levelNumber: index + 1 }));
+const parseDifficulty = (value: unknown): Difficulty => value === "easy" || value === "hard" ? value : "medium";
+const titleCase = (value: string) => value.split(/[\s-]+/).filter(Boolean).map((token) => token[0]?.toUpperCase() + token.slice(1)).join(" ");
 
 function parseIntegerList(value: string): number[] {
-  const parsed = splitCsv(value)
-    .map((token) => Number(token))
-    .filter((valueNumber) => Number.isFinite(valueNumber) && valueNumber > 0)
-    .map((valueNumber) => Math.round(valueNumber));
-
-  return parsed.length > 0 ? parsed : [30, 10, 5];
+  const parsed = splitCsv(value).map((token) => Number(token)).filter((n) => Number.isFinite(n) && n > 0).map((n) => Math.round(n));
+  return parsed.length ? parsed : [30, 10, 5];
 }
 
-function splitLineList(value: string): string[] {
-  return value
-    .split(/\r?\n/)
-    .map((token) => token.trim())
-    .filter(Boolean);
+function parseCoordinatePairs(raw: string): Tile[] {
+  return raw.split(/[;\n]/).map((token) => token.trim()).filter(Boolean).map((token) => {
+    const [rowRaw, colRaw] = token.split(",").map((value) => Number(value.trim()));
+    return { row: Math.max(1, Number.isFinite(rowRaw) ? Math.round(rowRaw) : 1), col: Math.max(1, Number.isFinite(colRaw) ? Math.round(colRaw) : 1) };
+  });
 }
 
-function toErrorMessage(error: unknown): string {
-  if (error instanceof ApiError) {
-    const payload = error.data as { error?: { message?: string } } | undefined;
-    return payload?.error?.message ?? `Request failed (${error.status})`;
-  }
-
-  if (error instanceof Error) {
-    return error.message;
-  }
-
-  return "Unexpected admin error.";
+function serializeCoordinatePairs(cells: Tile[]): string {
+  return cells.filter((cell, index, list) => list.findIndex((entry) => entry.row === cell.row && entry.col === cell.col) === index)
+    .map((cell) => `${cell.row},${cell.col}`).join(";");
 }
 
-function createDefaultCoreState(): CoreFormState {
-  return {
-    schemaVersion: 2,
-    gameId: "new-game-id",
-    title: "New Admin Game",
-    description: "Created from the admin dashboard",
-    version: "1.0.0",
-    gameType: "MCQ",
-    difficulty: "medium",
-    directoryName: "",
-    author: "Admin",
-    targetSkill: "general",
-    tagsText: "admin",
-    estimatedPlayTime: 3,
-    timerType: "countdown",
-    timerDuration: 120,
-    warningAtText: "30,10,5",
-    basePoints: 100,
-    bonusMultiplier: 1,
-    penaltyPerHint: 0,
-    penaltyPerWrong: 0,
-    timeBonusFormula: "none",
-    timeBonusMultiplier: 1,
-    adaptiveEnabled: false,
-    adaptiveSupportThreshold: 0.5,
-    adaptiveChallengeThreshold: 0.85,
-    adaptiveTimerAdjustmentSeconds: 10,
-    adaptiveMultiplierAdjustment: 0.15,
-    aiEnabled: false,
-    aiProvider: "local-template",
-    smartboardEnabled: false,
-    smartboardFullscreen: true,
-  };
+function parseEnemyPatrolRows(raw: string): EnemyPatrolRow[] {
+  return raw.split(/[;\n]/).map((token) => token.trim()).filter(Boolean).map((token) => {
+    const [rowRaw, colRaw, movementRaw, minRaw, maxRaw, speedRaw] = token.split(",").map((value) => value.trim());
+    return {
+      row: Math.max(1, Number(rowRaw) || 1),
+      col: Math.max(1, Number(colRaw) || 1),
+      movement: movementRaw === "vertical" ? "vertical" : "horizontal",
+      min: Math.max(1, Number(minRaw) || 1),
+      max: Math.max(1, Number(maxRaw) || Number(minRaw) || 1),
+      speed: Math.max(1, Number(speedRaw) || 1),
+    };
+  });
 }
 
-function createDefaultMCQLevel(levelNumber: number): MCQLevelForm {
-  return {
-    levelNumber,
-    question: `Level ${levelNumber}: Sample question`,
-    optionCount: 2,
-    optionA: "Correct answer",
-    optionB: "Wrong answer",
-    optionC: "",
-    optionD: "",
-    correctOptionId: "A",
-    shuffleQuestions: false,
-    shuffleOptions: false,
-    negativeMarking: false,
-  };
+function parseEnemyPatrols(raw: string, rows: number, cols: number) {
+  return parseEnemyPatrolRows(raw).map((enemy, index) => ({
+    id: `enemy-${index + 1}`,
+    row: Math.max(0, Math.min(rows - 1, enemy.row - 1)),
+    col: Math.max(0, Math.min(cols - 1, enemy.col - 1)),
+    movement: enemy.movement,
+    min: Math.max(0, enemy.min - 1),
+    max: enemy.movement === "horizontal" ? Math.min(cols - 1, enemy.max - 1) : Math.min(rows - 1, enemy.max - 1),
+    speed: enemy.speed,
+    direction: "forward" as const,
+  }));
 }
 
-function createDefaultWordLevel(levelNumber: number): WordLevelForm {
-  return {
-    levelNumber,
-    availableLettersText: "C,A,T,D,O,G",
-    wordsText: "CAT,DOG",
-  };
-}
-
-function createDefaultGridLevel(levelNumber: number): GridLevelForm {
-  return {
-    levelNumber,
-    gridSize: 4,
-    cluesCount: 4,
-  };
-}
-
-function createDefaultDragDropLevel(levelNumber: number): DragDropLevelForm {
-  return {
-    levelNumber,
-    itemsText: "Apple,Carrot,Milk",
-    targetsText: "Fruit,Vegetable,Dairy",
-  };
-}
-
-function createDefaultBoardLevel(levelNumber: number): BoardLevelForm {
-  return {
-    levelNumber,
-    rows: 5,
-    cols: 5,
-    blockagesText: "2,2",
-    tasksText: "2,3;3,3",
-    enemyPatrolsText: "",
-  };
-}
-
-function createDefaultCustomLevel(levelNumber: number): CustomLevelForm {
-  return {
-    levelNumber,
-    levelName: `Level ${levelNumber}`,
-    objective: "Complete the objective",
-    instruction: "Describe what the player should do in this level.",
-    successText: "Great job!",
-    checkpointsText: "Review the objective\nComplete the action\nConfirm the result",
-  };
-}
-
-function assignLevelNumbers<T extends LevelBase>(levels: T[]): T[] {
-  return levels.map((level, index) => ({ ...level, levelNumber: index + 1 }));
-}
-
-function makeLatinSquare(size: number): number[][] {
-  return Array.from({ length: size }, (_, row) =>
-    Array.from({ length: size }, (_, col) => ((row + col) % size) + 1),
-  );
-}
-
-function makePrefilledCells(solution: number[][], cluesCount: number): Array<{ row: number; col: number; value: number }> {
-  const size = solution.length;
-  const total = Math.max(1, Math.min(cluesCount, size * size));
-  const cells: Array<{ row: number; col: number; value: number }> = [];
-
-  for (let index = 0; index < total; index += 1) {
-    const row = Math.floor(index / size);
-    const col = index % size;
-    cells.push({ row, col, value: solution[row][col] });
-  }
-
-  return cells;
-}
-
-function parseCoordinatePairs(raw: string): Array<{ row: number; col: number }> {
-  return raw
-    .split(/[;\n]/)
-    .map((token) => token.trim())
-    .filter(Boolean)
-    .map((token) => {
-      const [rowRaw, colRaw] = token.split(",").map((value) => Number(value.trim()));
-      return {
-        row: Number.isFinite(rowRaw) ? Math.max(1, Math.round(rowRaw)) : 1,
-        col: Number.isFinite(colRaw) ? Math.max(1, Math.round(colRaw)) : 1,
-      };
-    });
-}
-
-function makeBoard(
-  rows: number,
-  cols: number,
-  blockages: Array<{ row: number; col: number }>,
-  tasks: Array<{ row: number; col: number }>,
-): string[] {
-  const safeRows = Math.max(3, rows);
-  const safeCols = Math.max(3, cols);
+function makeBoard(rows: number, cols: number, blockages: Tile[], tasks: Tile[], checkpoints: Tile[]): string[] {
+  const safeRows = Math.max(3, rows), safeCols = Math.max(3, cols);
   const board = Array.from({ length: safeRows }, () => Array.from({ length: safeCols }, () => "."));
-  board[0][0] = "S";
-  board[safeRows - 1][safeCols - 1] = "G";
-
-  blockages.forEach((cell) => {
-    const rowIndex = cell.row - 1;
-    const colIndex = cell.col - 1;
-    if (rowIndex < 0 || colIndex < 0 || rowIndex >= safeRows || colIndex >= safeCols) {
-      return;
-    }
-
-    if ((rowIndex === 0 && colIndex === 0) || (rowIndex === safeRows - 1 && colIndex === safeCols - 1)) {
-      return;
-    }
-
-    board[rowIndex][colIndex] = "#";
-  });
-
-  tasks.forEach((cell) => {
-    const rowIndex = cell.row - 1;
-    const colIndex = cell.col - 1;
-    if (rowIndex < 0 || colIndex < 0 || rowIndex >= safeRows || colIndex >= safeCols) {
-      return;
-    }
-
-    if (board[rowIndex][colIndex] === "#") {
-      return;
-    }
-
-    if ((rowIndex === 0 && colIndex === 0) || (rowIndex === safeRows - 1 && colIndex === safeCols - 1)) {
-      return;
-    }
-
-    board[rowIndex][colIndex] = "T";
-  });
-
+  board[0][0] = "S"; board[safeRows - 1][safeCols - 1] = "G";
+  parseCoordinatePairs(serializeCoordinatePairs(blockages)).forEach((cell) => { const row = cell.row - 1, col = cell.col - 1; if (board[row]?.[col] === "." && !(row === 0 && col === 0) && !(row === safeRows - 1 && col === safeCols - 1)) board[row][col] = "#"; });
+  parseCoordinatePairs(serializeCoordinatePairs(checkpoints)).forEach((cell) => { const row = cell.row - 1, col = cell.col - 1; if (board[row]?.[col] === ".") board[row][col] = "C"; });
+  parseCoordinatePairs(serializeCoordinatePairs(tasks)).forEach((cell) => { const row = cell.row - 1, col = cell.col - 1; if (board[row]?.[col] === ".") board[row][col] = "T"; });
   return board.map((row) => row.join(""));
 }
 
-function makeBoardTasks(
-  rows: number,
-  cols: number,
-  tasks: Array<{ row: number; col: number }>,
-): Array<{ id: string; row: number; col: number; label: string }> {
-  const safeRows = Math.max(3, rows);
-  const safeCols = Math.max(3, cols);
-  return tasks
-    .map((cell, index) => {
-      const row = Math.max(1, Math.min(safeRows - 2, cell.row - 1));
-      const col = Math.max(1, Math.min(safeCols - 2, cell.col - 1));
-      return {
-        id: `task-${index + 1}`,
-        row,
-        col,
-        label: `Task ${index + 1}`,
-      };
-    })
-    .filter((task, index, list) => list.findIndex((entry) => entry.row === task.row && entry.col === task.col) === index)
-    .slice(0, Math.max(0, safeRows * safeCols - 2))
-    .map((task, index) => ({
-      ...task,
-      id: `task-${index + 1}`,
-      label: `Task ${index + 1}`,
-    }));
+const makeBoardTasks = (tasks: Tile[]) => parseCoordinatePairs(serializeCoordinatePairs(tasks)).map((task, index) => ({ id: `task-${index + 1}`, row: task.row - 1, col: task.col - 1, label: `Task ${index + 1}` }));
+const makeBoardCheckpoints = (checkpoints: Tile[]) => parseCoordinatePairs(serializeCoordinatePairs(checkpoints)).map((checkpoint, index) => ({ id: `checkpoint-${index + 1}`, row: checkpoint.row - 1, col: checkpoint.col - 1, label: `Checkpoint ${index + 1}`, required: true }));
+
+function parseMathPrompts(raw: string) {
+  return splitLines(raw).map((line, index) => {
+    const [prompt, answer, ...options] = line.split("|").map((token) => token.trim()).filter(Boolean);
+    return { id: `prompt-${index + 1}`, prompt: prompt || `Prompt ${index + 1}`, answer: answer || "0", options: options.length ? options.map((text, optionIndex) => ({ id: String.fromCharCode(65 + optionIndex), text })) : undefined, hint: "Work the operation step by step.", explanation: "Check the computed result against the choices." };
+  });
 }
 
-function parseEnemyPatrols(
-  raw: string,
-  rows: number,
-  cols: number,
-): Array<{
-  id: string;
-  row: number;
-  col: number;
-  movement: "horizontal" | "vertical";
-  min: number;
-  max: number;
-  speed: number;
-  direction: "forward";
-}> {
-  const safeRows = Math.max(3, rows);
-  const safeCols = Math.max(3, cols);
-  return raw
-    .split(/[;\n]/)
-    .map((token) => token.trim())
-    .filter(Boolean)
-    .map((token, index) => {
-      const [rowRaw, colRaw, movementRaw, minRaw, maxRaw, speedRaw] = token.split(",").map((value) => value.trim());
-      const movement = movementRaw === "vertical" ? "vertical" : "horizontal";
-      const row = Math.max(0, Math.min(safeRows - 1, (Number(rowRaw) || 1) - 1));
-      const col = Math.max(0, Math.min(safeCols - 1, (Number(colRaw) || 1) - 1));
-      const min = Math.max(0, (Number(minRaw) || 1) - 1);
-      const max = movement === "horizontal"
-        ? Math.min(safeCols - 1, (Number(maxRaw) || safeCols) - 1)
-        : Math.min(safeRows - 1, (Number(maxRaw) || safeRows) - 1);
+const serializeMathPrompts = (prompts: Array<Record<string, unknown>>) => prompts.map((prompt) => [String(prompt.prompt ?? ""), String(prompt.answer ?? ""), ...((((prompt.options as Array<{ text: string }> | undefined) ?? []).map((option) => option.text)))].filter(Boolean).join("|")).join("\n");
+const inferCustomRendererKind = (level: Record<string, unknown> | undefined): CustomRendererKind => level?.renderer && typeof level.renderer === "object" && ((level.renderer as { kind?: unknown }).kind === "platformer" || (level.renderer as { kind?: unknown }).kind === "math") ? (level.renderer as { kind: CustomRendererKind }).kind : Array.isArray(level?.prompts) ? "math" : "platformer";
 
-      return {
-        id: `enemy-${index + 1}`,
-        row,
-        col,
-        movement,
-        min,
-        max: Math.max(min, max),
-        speed: Math.max(1, Number(speedRaw) || 1),
-        direction: "forward" as const,
-      };
-    });
+function toErrorMessage(error: unknown): string {
+  if (error instanceof ApiError) return ((error.data as { error?: { message?: string } } | undefined)?.error?.message) ?? `Request failed (${error.status})`;
+  if (error instanceof Error) return error.message;
+  return "Unexpected admin error.";
 }
 
-type EnemyPatrolRow = {
-  row: number;
-  col: number;
-  movement: "horizontal" | "vertical";
-  min: number;
-  max: number;
-  speed: number;
-};
+const createDefaultCoreState = (): CoreFormState => ({ schemaVersion: 2, gameId: "ai-game", title: "New Builder Game", description: "Created from the admin dashboard", version: "1.0.0", gameType: "BOARD", difficulty: "medium", directoryName: "", author: "Admin", targetSkill: "problem solving", tagsText: "admin,ai", estimatedPlayTime: 5, timerType: "countdown", timerDuration: 120, warningAtText: "30,10,5", basePoints: 100, bonusMultiplier: 1, penaltyPerHint: 5, penaltyPerWrong: 0, timeBonusFormula: "linear", timeBonusMultiplier: 1, adaptiveEnabled: true, adaptiveSupportThreshold: 0.55, adaptiveChallengeThreshold: 0.9, adaptiveTimerAdjustmentSeconds: 12, adaptiveMultiplierAdjustment: 0.2, aiEnabled: true, aiProvider: "local-template", smartboardEnabled: true, smartboardFullscreen: true, customRendererKind: "platformer" });
+const createDefaultMCQLevel = (levelNumber: number): MCQLevelForm => ({ levelNumber, question: `Level ${levelNumber}: Sample question`, optionA: "Correct", optionB: "Distractor 1", optionC: "Distractor 2", optionD: "Distractor 3", correctOptionId: "A" });
+const createDefaultWordLevel = (levelNumber: number): WordLevelForm => ({ levelNumber, availableLettersText: "C,A,T,D,O,G", wordsText: "CAT,DOG" });
+const createDefaultGridLevel = (levelNumber: number): GridLevelForm => ({ levelNumber, gridSize: 4, cluesCount: 4 });
+const createDefaultDragDropLevel = (levelNumber: number): DragDropLevelForm => ({ levelNumber, itemsText: "Apple,Carrot,Milk", targetsText: "Fruit,Vegetable,Dairy" });
+const createDefaultBoardLevel = (levelNumber: number): BoardLevelForm => ({ levelNumber, rows: 5, cols: 6, blockagesText: "2,3;3,3", tasksText: "2,4;4,2", checkpointsText: "3,5", enemyPatrolsText: "" });
+const createDefaultCustomLevel = (levelNumber: number, rendererKind: CustomRendererKind): CustomLevelForm => ({ levelNumber, levelName: `Level ${levelNumber}`, objective: rendererKind === "math" ? "Solve the challenge set" : "Complete the objective", instruction: rendererKind === "platformer" ? "Move through the board, activate checkpoints, and reach the portal." : rendererKind === "math" ? "Answer every prompt and hit the pass threshold." : "Describe what the player should do.", successText: "Great job!", rendererKind, scenarioCheckpointsText: "Review the objective\nComplete the action\nConfirm the result", boardRows: 4, boardCols: 7, boardBlockagesText: "2,3;3,3", boardTasksText: "2,5;3,5", boardCheckpointsText: "2,2", enemyPatrolsText: "", promptsText: "8 + 4 = ?|12|12|10|14|11\n15 - 6 = ?|9|9|7|10|8", passingScore: 70 });
 
-function parseEnemyPatrolRows(raw: string): EnemyPatrolRow[] {
-  return raw
-    .split(/[;\n]/)
-    .map((token) => token.trim())
-    .filter(Boolean)
-    .map((token) => {
-      const [rowRaw, colRaw, movementRaw, minRaw, maxRaw, speedRaw] = token.split(",").map((value) => value.trim());
-      return {
-        row: Math.max(1, Number(rowRaw) || 1),
-        col: Math.max(1, Number(colRaw) || 1),
-        movement: movementRaw === "vertical" ? "vertical" : "horizontal",
-        min: Math.max(1, Number(minRaw) || 1),
-        max: Math.max(1, Number(maxRaw) || Math.max(1, Number(minRaw) || 1)),
-        speed: Math.max(1, Number(speedRaw) || 1),
-      };
-    });
-}
-
-function serializeEnemyPatrolRows(rows: EnemyPatrolRow[]): string {
-  return rows
-    .map((row) => [row.row, row.col, row.movement, row.min, row.max, row.speed].join(","))
-    .join(";");
-}
-
-function parseDifficulty(value: unknown): Difficulty {
-  if (value === "easy" || value === "hard") {
-    return value;
-  }
-
-  return "medium";
+function BoardPainter(props: { rows: number; cols: number; blockagesText: string; tasksText: string; checkpointsText: string; onChange: (next: { blockagesText: string; tasksText: string; checkpointsText: string }) => void }) {
+  const [tool, setTool] = useState<"wall" | "task" | "checkpoint" | "erase">("wall");
+  const walls = parseCoordinatePairs(props.blockagesText), tasks = parseCoordinatePairs(props.tasksText), checkpoints = parseCoordinatePairs(props.checkpointsText);
+  const has = (cells: Tile[], row: number, col: number) => cells.some((cell) => cell.row === row && cell.col === col);
+  const update = (row: number, col: number) => {
+    if ((row === 1 && col === 1) || (row === props.rows && col === props.cols)) return;
+    let nextWalls = walls.filter((cell) => !(cell.row === row && cell.col === col));
+    let nextTasks = tasks.filter((cell) => !(cell.row === row && cell.col === col));
+    let nextCheckpoints = checkpoints.filter((cell) => !(cell.row === row && cell.col === col));
+    if (tool === "wall") nextWalls = [...nextWalls, { row, col }];
+    if (tool === "task") nextTasks = [...nextTasks, { row, col }];
+    if (tool === "checkpoint") nextCheckpoints = [...nextCheckpoints, { row, col }];
+    props.onChange({ blockagesText: serializeCoordinatePairs(nextWalls), tasksText: serializeCoordinatePairs(nextTasks), checkpointsText: serializeCoordinatePairs(nextCheckpoints) });
+  };
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap gap-2">{["wall", "task", "checkpoint", "erase"].map((entry) => <button key={entry} type="button" className={`${tool === entry ? "btn-primary" : "btn-secondary"} btn-sm`.trim()} onClick={() => setTool(entry as typeof tool)}>{entry}</button>)}</div>
+      <div className="board-grid board-grid-smartboard" style={{ gridTemplateColumns: `repeat(${props.cols}, minmax(0, 1fr))` }}>
+        {Array.from({ length: props.rows }, (_, rowIndex) => Array.from({ length: props.cols }, (_, colIndex) => {
+          const row = rowIndex + 1, col = colIndex + 1, isStart = row === 1 && col === 1, isGoal = row === props.rows && col === props.cols;
+          const label = isStart ? "S" : isGoal ? "G" : has(walls, row, col) ? "#" : has(tasks, row, col) ? "T" : has(checkpoints, row, col) ? "C" : "";
+          return <button key={`${row}-${col}`} type="button" className={`board-tile ${label === "#" ? "is-wall" : ""} ${label === "G" ? "is-goal" : ""} ${label === "T" || label === "C" ? "is-cleared" : ""}`.trim()} onClick={() => update(row, col)}><span>{label}</span></button>;
+        }))}
+      </div>
+    </div>
+  );
 }
 
 export function AdminDashboard() {
   const [overview, setOverview] = useState<AdminOverview | null>(null);
-  const [selectedGameId, setSelectedGameId] = useState<string>("");
+  const [selectedGameId, setSelectedGameId] = useState("");
   const [isCreateMode, setIsCreateMode] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isAiBusy, setIsAiBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [previewBand, setPreviewBand] = useState<AdaptiveBand>("standard");
-
-  const [coreForm, setCoreForm] = useState<CoreFormState>(createDefaultCoreState());
+  const [aiPrompt, setAiPrompt] = useState("Create a polished game with 3 escalating levels, clear learning goals, and memorable level variety.");
+  const [aiLevelCount, setAiLevelCount] = useState(3);
+  const [levelRemovalNumber, setLevelRemovalNumber] = useState(1);
+  const [coreForm, setCoreForm] = useState(createDefaultCoreState());
   const [mcqLevels, setMcqLevels] = useState<MCQLevelForm[]>([createDefaultMCQLevel(1)]);
   const [wordLevels, setWordLevels] = useState<WordLevelForm[]>([createDefaultWordLevel(1)]);
   const [gridLevels, setGridLevels] = useState<GridLevelForm[]>([createDefaultGridLevel(1)]);
   const [dragDropLevels, setDragDropLevels] = useState<DragDropLevelForm[]>([createDefaultDragDropLevel(1)]);
   const [boardLevels, setBoardLevels] = useState<BoardLevelForm[]>([createDefaultBoardLevel(1)]);
-  const [customLevels, setCustomLevels] = useState<CustomLevelForm[]>([createDefaultCustomLevel(1)]);
-
+  const [customLevels, setCustomLevels] = useState<CustomLevelForm[]>([createDefaultCustomLevel(1, createDefaultCoreState().customRendererKind)]);
   const setAvailableGames = useGameStore((state) => state.setAvailableGames);
-
-  const selectedGame = useMemo(
-    () => overview?.games.find((game) => game.gameId === selectedGameId) ?? null,
-    [overview, selectedGameId],
-  );
 
   const generatedConfig = useMemo(() => {
     const now = new Date().toISOString();
@@ -463,1475 +215,130 @@ export function AdminDashboard() {
       description: coreForm.description.trim(),
       version: coreForm.version.trim(),
       difficulty: coreForm.difficulty,
-      timerConfig: {
-        type: coreForm.timerType,
-        duration: Math.max(10, Math.round(coreForm.timerDuration)),
-        warningAt: parseIntegerList(coreForm.warningAtText),
-      },
-      scoringConfig: {
-        basePoints: Math.max(1, Math.round(coreForm.basePoints)),
-        bonusMultiplier: Math.max(0.1, coreForm.bonusMultiplier),
-        penaltyPerHint: Math.max(0, Math.round(coreForm.penaltyPerHint)),
-        penaltyPerWrong: Math.max(0, Math.round(coreForm.penaltyPerWrong)),
-        timeBonusFormula: coreForm.timeBonusFormula,
-        timeBonusMultiplier: Math.max(0, coreForm.timeBonusMultiplier),
-      },
-      uiConfig: {
-        theme: "system" as const,
-        primaryColor: "#0f766e",
-        secondaryColor: "#f59e0b",
-        iconSet: "lucide",
-        layout: coreForm.smartboardEnabled ? "fullscreen" as const : "centered" as const,
-        showTimer: true,
-        showScore: true,
-        showProgress: true,
-        smartboard: {
-          enabled: coreForm.smartboardEnabled,
-          allowFullscreen: coreForm.smartboardFullscreen,
-          autoScaleBoard: coreForm.smartboardEnabled,
-          emphasizeControls: coreForm.smartboardEnabled,
-        },
-      },
-      metadata: {
-        author: coreForm.author.trim() || "Admin",
-        createdAt: now,
-        updatedAt: now,
-        tags: splitCsv(coreForm.tagsText),
-        targetSkill: coreForm.targetSkill.trim() || "general",
-        estimatedPlayTime: Math.max(1, Math.round(coreForm.estimatedPlayTime)),
-      },
-      apiConfig: {
-        leaderboardEndpoint: `/api/leaderboard/${coreForm.gameId.trim()}`,
-        scoreSubmitEndpoint: "/api/score",
-      },
-      adaptiveConfig: coreForm.adaptiveEnabled
-        ? {
-          enabled: true,
-          supportThreshold: Math.min(0.95, Math.max(0.05, coreForm.adaptiveSupportThreshold)),
-          challengeThreshold: Math.min(0.99, Math.max(0.1, coreForm.adaptiveChallengeThreshold)),
-          timerAdjustmentSeconds: Math.max(0, Math.round(coreForm.adaptiveTimerAdjustmentSeconds)),
-          multiplierAdjustment: Math.max(0, coreForm.adaptiveMultiplierAdjustment),
-          maxTimerAdjustmentSeconds: 30,
-          minimumMultiplier: 0.75,
-          maximumMultiplier: 2,
-          adaptContent: true,
-          adaptTimer: true,
-          adaptScoring: true,
-          adaptPenalties: true,
-        }
-        : undefined,
-      aiConfig: coreForm.aiEnabled
-        ? {
-          enabled: true,
-          provider: coreForm.aiProvider,
-          fallbackToLocal: true,
-        }
-        : undefined,
+      timerConfig: { type: coreForm.timerType, duration: Math.max(10, Math.round(coreForm.timerDuration)), warningAt: parseIntegerList(coreForm.warningAtText) },
+      scoringConfig: { basePoints: Math.max(1, Math.round(coreForm.basePoints)), bonusMultiplier: Math.max(0.1, coreForm.bonusMultiplier), penaltyPerHint: Math.max(0, Math.round(coreForm.penaltyPerHint)), penaltyPerWrong: Math.max(0, Math.round(coreForm.penaltyPerWrong)), timeBonusFormula: coreForm.timeBonusFormula, timeBonusMultiplier: Math.max(0, coreForm.timeBonusMultiplier) },
+      uiConfig: { theme: "system" as const, primaryColor: "#0f766e", secondaryColor: "#f59e0b", iconSet: "lucide", layout: coreForm.smartboardEnabled ? "fullscreen" as const : "centered" as const, showTimer: true, showScore: true, showProgress: true, smartboard: { enabled: coreForm.smartboardEnabled, allowFullscreen: coreForm.smartboardFullscreen, autoScaleBoard: true, emphasizeControls: coreForm.smartboardEnabled } },
+      metadata: { author: coreForm.author.trim() || "Admin", createdAt: now, updatedAt: now, tags: splitCsv(coreForm.tagsText), targetSkill: coreForm.targetSkill.trim() || "problem solving", estimatedPlayTime: Math.max(1, Math.round(coreForm.estimatedPlayTime)) },
+      apiConfig: { leaderboardEndpoint: `/api/leaderboard/${coreForm.gameId.trim()}`, scoreSubmitEndpoint: "/api/score" },
+      adaptiveConfig: coreForm.adaptiveEnabled ? { enabled: true, supportThreshold: coreForm.adaptiveSupportThreshold, challengeThreshold: coreForm.adaptiveChallengeThreshold, timerAdjustmentSeconds: coreForm.adaptiveTimerAdjustmentSeconds, multiplierAdjustment: coreForm.adaptiveMultiplierAdjustment, maxTimerAdjustmentSeconds: 30, minimumMultiplier: 0.75, maximumMultiplier: 2, adaptContent: true, adaptTimer: true, adaptScoring: true, adaptPenalties: true } : undefined,
+      aiConfig: coreForm.aiEnabled ? { enabled: true, provider: coreForm.aiProvider, fallbackToLocal: true } : undefined,
+      interactionConfig: { inputMode: "hybrid" as const, autoFocus: true, pointer: { dragEnabled: true, touchEnabled: true }, accessibility: { keyboardDragDrop: true, announceCommands: true } },
     };
 
-    if (coreForm.gameType === "MCQ") {
-      return {
-        ...baseConfig,
-        levels: assignLevelNumbers(mcqLevels).map((level) => ({
-          levelNumber: level.levelNumber,
-          timeLimit: level.timeLimit,
-          bonusMultiplier: level.bonusMultiplier,
-          questions: [
-            {
-              id: `q-${level.levelNumber}`,
-              question: level.question,
-              options: [
-                { id: "A", text: level.optionA },
-                { id: "B", text: level.optionB },
-                ...(level.optionCount >= 3 ? [{ id: "C", text: level.optionC || "Option C" }] : []),
-                ...(level.optionCount >= 4 ? [{ id: "D", text: level.optionD || "Option D" }] : []),
-              ],
-              correctOptionId: level.correctOptionId,
-              difficulty: coreForm.difficulty,
-            },
-          ],
-          shuffleQuestions: level.shuffleQuestions,
-          shuffleOptions: level.shuffleOptions,
-          negativeMarking: level.negativeMarking,
-        })),
-      };
-    }
-
-    if (coreForm.gameType === "WORD") {
-      return {
-        ...baseConfig,
-        levels: assignLevelNumbers(wordLevels).map((level) => {
-          const words = splitCsv(level.wordsText);
-          return {
-            levelNumber: level.levelNumber,
-            timeLimit: level.timeLimit,
-            bonusMultiplier: level.bonusMultiplier,
-            availableLetters: splitCsv(level.availableLettersText),
-            validWords: words.map((word) => ({
-              word: word.toUpperCase(),
-              points: 100,
-              difficulty: coreForm.difficulty,
-            })),
-            bonusWords: [],
-            minWordLength: 2,
-            maxWordLength: 12,
-          };
-        }),
-      };
-    }
-
-    if (coreForm.gameType === "GRID") {
-      return {
-        ...baseConfig,
-        levels: assignLevelNumbers(gridLevels).map((level) => {
-          const size = Math.max(2, Math.min(9, Math.round(level.gridSize)));
-          const solution = makeLatinSquare(size);
-          const preFilledCells = makePrefilledCells(solution, Math.max(1, level.cluesCount));
-
-          return {
-            levelNumber: level.levelNumber,
-            timeLimit: level.timeLimit,
-            bonusMultiplier: level.bonusMultiplier,
-            gridSize: size,
-            preFilledCells,
-            solution,
-            hints: preFilledCells.slice(0, Math.min(2, preFilledCells.length)),
-          };
-        }),
-      };
-    }
-
-    if (coreForm.gameType === "DRAG_DROP") {
-      return {
-        ...baseConfig,
-        levels: assignLevelNumbers(dragDropLevels).map((level) => {
-          const items = splitCsv(level.itemsText).map((label, index) => ({
-            id: `item-${index + 1}`,
-            label,
-          }));
-          const targets = splitCsv(level.targetsText).map((label, index) => ({
-            id: `target-${index + 1}`,
-            label,
-            acceptsMultiple: false,
-          }));
-          const fallbackTargetId = targets[0]?.id ?? "target-1";
-          const correctMapping = items.reduce<Record<string, string>>((mapping, item, index) => {
-            mapping[item.id] = targets[index]?.id ?? fallbackTargetId;
-            return mapping;
-          }, {});
-
-          return {
-            levelNumber: level.levelNumber,
-            timeLimit: level.timeLimit,
-            bonusMultiplier: level.bonusMultiplier,
-            items,
-            targets,
-            correctMapping,
-          };
-        }),
-      };
-    }
-
-    if (coreForm.gameType === "BOARD") {
-      return {
-        ...baseConfig,
-        levels: assignLevelNumbers(boardLevels).map((level) => {
-          const blockageCells = parseCoordinatePairs(level.blockagesText);
-          const taskCells = parseCoordinatePairs(level.tasksText);
-          return {
-            levelNumber: level.levelNumber,
-            timeLimit: level.timeLimit,
-            bonusMultiplier: level.bonusMultiplier,
-            board: makeBoard(level.rows, level.cols, blockageCells, taskCells),
-            tasks: makeBoardTasks(level.rows, level.cols, taskCells),
-            enemies: parseEnemyPatrols(level.enemyPatrolsText, level.rows, level.cols),
-          };
-        }),
-      };
-    }
-
-    return {
-      ...baseConfig,
-      levels: assignLevelNumbers(customLevels).map((level) => ({
-        levelNumber: level.levelNumber,
-        timeLimit: level.timeLimit,
-        bonusMultiplier: level.bonusMultiplier,
-        name: level.levelName,
-        objective: level.objective,
-        instruction: level.instruction,
-        successText: level.successText,
-        checkpoints: splitLineList(level.checkpointsText),
-      })),
-    };
+    if (coreForm.gameType === "MCQ") return { ...baseConfig, levels: assignLevelNumbers(mcqLevels).map((level) => ({ levelNumber: level.levelNumber, timeLimit: level.timeLimit, bonusMultiplier: level.bonusMultiplier, shuffleQuestions: true, shuffleOptions: true, negativeMarking: coreForm.penaltyPerWrong > 0, questions: [{ id: `q-${level.levelNumber}`, question: level.question, options: [{ id: "A", text: level.optionA }, { id: "B", text: level.optionB }, { id: "C", text: level.optionC }, { id: "D", text: level.optionD }], correctOptionId: level.correctOptionId, difficulty: coreForm.difficulty }] })) };
+    if (coreForm.gameType === "WORD") return { ...baseConfig, levels: assignLevelNumbers(wordLevels).map((level) => ({ levelNumber: level.levelNumber, timeLimit: level.timeLimit, bonusMultiplier: level.bonusMultiplier, availableLetters: splitCsv(level.availableLettersText), validWords: splitCsv(level.wordsText).map((word) => ({ word: word.toUpperCase(), points: 100, difficulty: coreForm.difficulty })), bonusWords: [], minWordLength: 2, maxWordLength: 12 })) };
+    if (coreForm.gameType === "GRID") return { ...baseConfig, levels: assignLevelNumbers(gridLevels).map((level) => ({ levelNumber: level.levelNumber, timeLimit: level.timeLimit, bonusMultiplier: level.bonusMultiplier, gridSize: level.gridSize, preFilledCells: Array.from({ length: Math.max(1, level.cluesCount) }, (_, index) => ({ row: Math.floor(index / level.gridSize), col: index % level.gridSize, value: (index % level.gridSize) + 1 })), solution: Array.from({ length: level.gridSize }, (_, rowIndex) => Array.from({ length: level.gridSize }, (_, colIndex) => ((rowIndex + colIndex) % level.gridSize) + 1)), hints: [] })) };
+    if (coreForm.gameType === "DRAG_DROP") return { ...baseConfig, levels: assignLevelNumbers(dragDropLevels).map((level) => { const items = splitCsv(level.itemsText).map((label, index) => ({ id: `item-${index + 1}`, label })); const targets = splitCsv(level.targetsText).map((label, index) => ({ id: `target-${index + 1}`, label, acceptsMultiple: false })); return { levelNumber: level.levelNumber, timeLimit: level.timeLimit, bonusMultiplier: level.bonusMultiplier, items, targets, correctMapping: items.reduce<Record<string, string>>((mapping, item, index) => ({ ...mapping, [item.id]: targets[index]?.id ?? targets[0]?.id ?? "target-1" }), {}) }; }) };
+    if (coreForm.gameType === "BOARD") return { ...baseConfig, levels: assignLevelNumbers(boardLevels).map((level) => { const walls = parseCoordinatePairs(level.blockagesText), tasks = parseCoordinatePairs(level.tasksText), checkpoints = parseCoordinatePairs(level.checkpointsText); return { levelNumber: level.levelNumber, timeLimit: level.timeLimit, bonusMultiplier: level.bonusMultiplier, board: makeBoard(level.rows, level.cols, walls, tasks, checkpoints), tasks: makeBoardTasks(tasks), checkpoints: makeBoardCheckpoints(checkpoints), enemies: parseEnemyPatrols(level.enemyPatrolsText, level.rows, level.cols) }; }) };
+    if (coreForm.gameType === "PLATFORMER") return { ...baseConfig, levels: assignLevelNumbers(customLevels).map((level) => { const walls = parseCoordinatePairs(level.boardBlockagesText), tasks = parseCoordinatePairs(level.boardTasksText), checkpoints = parseCoordinatePairs(level.boardCheckpointsText); return { levelNumber: level.levelNumber, timeLimit: level.timeLimit, bonusMultiplier: level.bonusMultiplier, name: level.levelName, objective: level.objective, instruction: level.instruction, successText: level.successText, renderer: { kind: "platformer" as const, strategy: "extend-board" as const }, boardGoalText: "Portal", board: makeBoard(level.boardRows, level.boardCols, walls, tasks, checkpoints), boardTasks: makeBoardTasks(tasks), boardCheckpoints: makeBoardCheckpoints(checkpoints), enemies: parseEnemyPatrols(level.enemyPatrolsText, level.boardRows, level.boardCols) }; }) };
+    if (coreForm.gameType === "MATH") return { ...baseConfig, levels: assignLevelNumbers(customLevels).map((level) => ({ levelNumber: level.levelNumber, timeLimit: level.timeLimit, bonusMultiplier: level.bonusMultiplier, name: level.levelName, objective: level.objective, instruction: level.instruction, successText: level.successText, renderer: { kind: "math" as const, strategy: "extend-mcq" as const }, prompts: parseMathPrompts(level.promptsText), passingScore: level.passingScore })) };
+    return { ...baseConfig, levels: [] };
   }, [boardLevels, coreForm, customLevels, dragDropLevels, gridLevels, mcqLevels, wordLevels]);
 
-  const previewLevel = useMemo(() => {
-    const levels = Array.isArray(generatedConfig.levels) ? generatedConfig.levels : [];
-    return levels[0] as Record<string, unknown> | undefined;
-  }, [generatedConfig]);
-
-  const simulatedAdaptivePreview = useMemo(() => {
-    const baseTimer = Math.max(10, Math.round(coreForm.timerDuration));
-    const baseMultiplier = Math.max(0.1, coreForm.bonusMultiplier);
-    const timerDelta = !coreForm.adaptiveEnabled
-      ? 0
-      : previewBand === "support"
-        ? Math.max(0, Math.round(coreForm.adaptiveTimerAdjustmentSeconds))
-        : previewBand === "challenge"
-          ? -Math.max(0, Math.round(coreForm.adaptiveTimerAdjustmentSeconds))
-          : 0;
-    const multiplierDelta = !coreForm.adaptiveEnabled
-      ? 0
-      : previewBand === "support"
-        ? -Math.max(0, coreForm.adaptiveMultiplierAdjustment)
-        : previewBand === "challenge"
-          ? Math.max(0, coreForm.adaptiveMultiplierAdjustment)
-          : 0;
-
-    return {
-      band: previewBand,
-      timer: Math.max(10, baseTimer + timerDelta),
-      timerDelta,
-      multiplier: Math.max(0.1, Number((baseMultiplier + multiplierDelta).toFixed(2))),
-      multiplierDelta,
-      note:
-        previewBand === "support"
-          ? "Support mode adds time, softens pressure, and simplifies content."
-          : previewBand === "challenge"
-            ? "Challenge mode shortens time and raises complexity."
-            : "Balanced mode keeps the authored baseline.",
-    };
-  }, [coreForm, previewBand]);
-
-  const simulatedPreviewLevel = useMemo(() => {
-    if (!previewLevel) {
-      return undefined;
-    }
-
-    if ("items" in previewLevel) {
-      const items = [...((previewLevel.items as Array<{ id: string; label: string }>) ?? [])];
-      const targets = [...((previewLevel.targets as Array<{ id: string; label: string }>) ?? [])];
-
-      return {
-        ...previewLevel,
-        items: previewBand === "support" ? items.slice(0, Math.max(2, items.length - 1)) : items,
-        targets: previewBand === "challenge"
-          ? [...targets, { id: "decoy-preview", label: `${targets[0]?.label ?? "Extra"} decoy` }]
-          : targets,
-      };
-    }
-
-    if ("board" in previewLevel) {
-      const enemies = [...((previewLevel.enemies as Array<{ row: number; col: number }>) ?? [])];
-      return {
-        ...previewLevel,
-        enemies:
-          previewBand === "support"
-            ? enemies.slice(0, Math.max(0, enemies.length - 1))
-            : previewBand === "challenge" && enemies.length === 0
-              ? [{ row: 1, col: 1 }]
-              : enemies,
-      };
-    }
-
-    if ("objective" in previewLevel) {
-      const checkpoints = [...((previewLevel.checkpoints as string[]) ?? [])];
-      return {
-        ...previewLevel,
-        checkpoints:
-          previewBand === "challenge"
-            ? [...checkpoints, "Validate the result under pressure"]
-            : checkpoints.length > 0
-              ? checkpoints
-              : [String(previewLevel.objective ?? "")],
-      };
-    }
-
-    return previewLevel;
-  }, [previewBand, previewLevel]);
-
-  function updateBoardEnemyRows(levelIndex: number, updater: (rows: EnemyPatrolRow[]) => EnemyPatrolRow[]): void {
-    setBoardLevels((prev) => assignLevelNumbers(prev.map((item, index) => {
-      if (index !== levelIndex) {
-        return item;
-      }
-
-      const nextRows = updater(parseEnemyPatrolRows(item.enemyPatrolsText));
-      return {
-        ...item,
-        enemyPatrolsText: serializeEnemyPatrolRows(nextRows),
-      };
-    })));
-  }
+  const previewLevel = useMemo(() => (Array.isArray(generatedConfig.levels) ? generatedConfig.levels[0] : undefined) as Record<string, unknown> | undefined, [generatedConfig]);
 
   async function refreshOverview(): Promise<void> {
-    setIsLoading(true);
-    setError(null);
-
+    setIsLoading(true); setError(null);
     try {
       const nextOverview = await getAdminOverview();
       setOverview(nextOverview);
-      setAvailableGames(
-        nextOverview.games.map((game) => ({
-          gameId: game.gameId,
-          title: game.title,
-          description: game.description,
-          gameType: game.gameType,
-          difficulty: game.difficulty,
-          version: game.version,
-          estimatedPlayTime: game.estimatedPlayTime,
-          tags: game.tags,
-        })),
-      );
-    } catch (loadError) {
-      setError(toErrorMessage(loadError));
-    } finally {
-      setIsLoading(false);
-    }
+      setAvailableGames(nextOverview.games.map((game) => ({ gameId: game.gameId, title: game.title, description: game.description, gameType: game.gameType, difficulty: game.difficulty, version: game.version, estimatedPlayTime: game.estimatedPlayTime, tags: game.tags })));
+    } catch (loadError) { setError(toErrorMessage(loadError)); } finally { setIsLoading(false); }
   }
 
-  useEffect(() => {
-    void refreshOverview();
-  }, []);
-
-  async function loadGameIntoBuilder(gameId: string): Promise<void> {
-    setError(null);
-    setNotice(null);
-
-    try {
-      const game = (await getAdminGame(gameId)) as Record<string, any>;
-      const gameType = (game.gameType as GameType | undefined) ?? "MCQ";
-      const defaultCore = createDefaultCoreState();
-
-      setCoreForm({
-        ...defaultCore,
-        schemaVersion: game.schemaVersion === 2 ? 2 : 1,
-        gameId: String(game.gameId ?? defaultCore.gameId),
-        title: String(game.title ?? defaultCore.title),
-        description: String(game.description ?? defaultCore.description),
-        version: String(game.version ?? defaultCore.version),
-        gameType,
-        difficulty: parseDifficulty(game.difficulty),
-        directoryName: overview?.games.find((entry) => entry.gameId === gameId)?.directory ?? "",
-        author: String(game.metadata?.author ?? defaultCore.author),
-        targetSkill: String(game.metadata?.targetSkill ?? defaultCore.targetSkill),
-        tagsText: Array.isArray(game.metadata?.tags) ? game.metadata.tags.join(",") : defaultCore.tagsText,
-        estimatedPlayTime: Number(game.metadata?.estimatedPlayTime) || defaultCore.estimatedPlayTime,
-        timerType: game.timerConfig?.type === "countup" ? "countup" : "countdown",
-        timerDuration: Number(game.timerConfig?.duration) || defaultCore.timerDuration,
-        warningAtText: Array.isArray(game.timerConfig?.warningAt)
-          ? game.timerConfig.warningAt.join(",")
-          : defaultCore.warningAtText,
-        basePoints: Number(game.scoringConfig?.basePoints) || defaultCore.basePoints,
-        bonusMultiplier: Number(game.scoringConfig?.bonusMultiplier) || defaultCore.bonusMultiplier,
-        penaltyPerHint: Number(game.scoringConfig?.penaltyPerHint) || defaultCore.penaltyPerHint,
-        penaltyPerWrong: Number(game.scoringConfig?.penaltyPerWrong) || defaultCore.penaltyPerWrong,
-        timeBonusFormula:
-          game.scoringConfig?.timeBonusFormula === "linear" || game.scoringConfig?.timeBonusFormula === "exponential"
-            ? game.scoringConfig.timeBonusFormula
-            : "none",
-        timeBonusMultiplier: Number(game.scoringConfig?.timeBonusMultiplier) || defaultCore.timeBonusMultiplier,
-        adaptiveEnabled: Boolean(game.adaptiveConfig?.enabled),
-        adaptiveSupportThreshold: Number(game.adaptiveConfig?.supportThreshold) || defaultCore.adaptiveSupportThreshold,
-        adaptiveChallengeThreshold: Number(game.adaptiveConfig?.challengeThreshold) || defaultCore.adaptiveChallengeThreshold,
-        adaptiveTimerAdjustmentSeconds: Number(game.adaptiveConfig?.timerAdjustmentSeconds) || defaultCore.adaptiveTimerAdjustmentSeconds,
-        adaptiveMultiplierAdjustment: Number(game.adaptiveConfig?.multiplierAdjustment) || defaultCore.adaptiveMultiplierAdjustment,
-        aiEnabled: Boolean(game.aiConfig?.enabled),
-        aiProvider: game.aiConfig?.provider === "openai-compatible" ? "openai-compatible" : "local-template",
-        smartboardEnabled: Boolean(game.uiConfig?.smartboard?.enabled),
-        smartboardFullscreen: game.uiConfig?.smartboard?.allowFullscreen !== false,
-      });
-
-      const levels = Array.isArray(game.levels) ? game.levels : [];
-
-      if (gameType === "MCQ") {
-        setMcqLevels(
-          assignLevelNumbers(
-            (levels.length > 0 ? levels : [createDefaultMCQLevel(1)]).map((level: any, index: number) => ({
-              levelNumber: Number(level.levelNumber) || index + 1,
-              question: String(level.questions?.[0]?.question ?? "Question"),
-              optionA: String(level.questions?.[0]?.options?.[0]?.text ?? "Option A"),
-              optionB: String(level.questions?.[0]?.options?.[1]?.text ?? "Option B"),
-              optionC: String(level.questions?.[0]?.options?.[2]?.text ?? ""),
-              optionD: String(level.questions?.[0]?.options?.[3]?.text ?? ""),
-              optionCount:
-                (Array.isArray(level.questions?.[0]?.options) && level.questions[0].options.length >= 4
-                  ? 4
-                  : Array.isArray(level.questions?.[0]?.options) && level.questions[0].options.length >= 3
-                    ? 3
-                    : 2) as 2 | 3 | 4,
-              correctOptionId:
-                level.questions?.[0]?.correctOptionId === "D"
-                  ? "D"
-                  : level.questions?.[0]?.correctOptionId === "C"
-                    ? "C"
-                    : level.questions?.[0]?.correctOptionId === "B"
-                      ? "B"
-                      : "A",
-              shuffleQuestions: Boolean(level.shuffleQuestions),
-              shuffleOptions: Boolean(level.shuffleOptions),
-              negativeMarking: Boolean(level.negativeMarking),
-              timeLimit: Number(level.timeLimit) || undefined,
-              bonusMultiplier: Number(level.bonusMultiplier) || undefined,
-            })),
-          ),
-        );
-      }
-
-      if (gameType === "WORD") {
-        setWordLevels(
-          assignLevelNumbers(
-            (levels.length > 0 ? levels : [createDefaultWordLevel(1)]).map((level: any, index: number) => ({
-              levelNumber: Number(level.levelNumber) || index + 1,
-              availableLettersText: Array.isArray(level.availableLetters) ? level.availableLetters.join(",") : "C,A,T",
-              wordsText: Array.isArray(level.validWords)
-                ? level.validWords.map((entry: any) => String(entry.word)).join(",")
-                : "CAT,DOG",
-              timeLimit: Number(level.timeLimit) || undefined,
-              bonusMultiplier: Number(level.bonusMultiplier) || undefined,
-            })),
-          ),
-        );
-      }
-
-      if (gameType === "GRID") {
-        setGridLevels(
-          assignLevelNumbers(
-            (levels.length > 0 ? levels : [createDefaultGridLevel(1)]).map((level: any, index: number) => ({
-              levelNumber: Number(level.levelNumber) || index + 1,
-              gridSize: Number(level.gridSize) || 4,
-              cluesCount: Array.isArray(level.preFilledCells) ? level.preFilledCells.length : 4,
-              timeLimit: Number(level.timeLimit) || undefined,
-              bonusMultiplier: Number(level.bonusMultiplier) || undefined,
-            })),
-          ),
-        );
-      }
-
-      if (gameType === "DRAG_DROP") {
-        setDragDropLevels(
-          assignLevelNumbers(
-            (levels.length > 0 ? levels : [createDefaultDragDropLevel(1)]).map((level: any, index: number) => ({
-              levelNumber: Number(level.levelNumber) || index + 1,
-              itemsText: Array.isArray(level.items) ? level.items.map((item: any) => item.label).join(",") : "Item A,Item B",
-              targetsText: Array.isArray(level.targets)
-                ? level.targets.map((target: any) => target.label).join(",")
-                : "Bucket A,Bucket B",
-              timeLimit: Number(level.timeLimit) || undefined,
-              bonusMultiplier: Number(level.bonusMultiplier) || undefined,
-            })),
-          ),
-        );
-      }
-
-      if (gameType === "BOARD") {
-        setBoardLevels(
-          assignLevelNumbers(
-            (levels.length > 0 ? levels : [createDefaultBoardLevel(1)]).map((level: any, index: number) => ({
-              levelNumber: Number(level.levelNumber) || index + 1,
-              rows: Array.isArray(level.board) ? level.board.length : 5,
-              cols: Array.isArray(level.board) && level.board[0] ? String(level.board[0]).length : 5,
-              blockagesText: Array.isArray(level.board)
-                ? level.board
-                    .flatMap((row: string, rowIndex: number) =>
-                      row
-                        .split("")
-                        .map((tile, colIndex) => ({ tile, rowIndex, colIndex }))
-                        .filter((entry) => entry.tile === "#")
-                        .map((entry) => `${entry.rowIndex + 1},${entry.colIndex + 1}`),
-                    )
-                    .join(";")
-                : "",
-              tasksText: Array.isArray(level.tasks)
-                ? level.tasks.map((task: any) => `${Number(task.row) + 1},${Number(task.col) + 1}`).join(";")
-                : Array.isArray(level.board)
-                  ? level.board
-                      .flatMap((row: string, rowIndex: number) =>
-                        row
-                          .split("")
-                          .map((tile, colIndex) => ({ tile, rowIndex, colIndex }))
-                          .filter((entry) => entry.tile === "T")
-                          .map((entry) => `${entry.rowIndex + 1},${entry.colIndex + 1}`),
-                      )
-                      .join(";")
-                  : "",
-              enemyPatrolsText: Array.isArray(level.enemies)
-                ? level.enemies
-                    .map((enemy: any) =>
-                      [
-                        Number(enemy.row) + 1,
-                        Number(enemy.col) + 1,
-                        enemy.movement === "vertical" ? "vertical" : "horizontal",
-                        Number(enemy.min) + 1,
-                        Number(enemy.max) + 1,
-                        Number(enemy.speed) || 1,
-                      ].join(","),
-                    )
-                    .join(";")
-                : "",
-              timeLimit: Number(level.timeLimit) || undefined,
-              bonusMultiplier: Number(level.bonusMultiplier) || undefined,
-            })),
-          ),
-        );
-      }
-
-      if (gameType === "CUSTOM") {
-        setCustomLevels(
-          assignLevelNumbers(
-            (levels.length > 0 ? levels : [createDefaultCustomLevel(1)]).map((level: any, index: number) => ({
-              levelNumber: Number(level.levelNumber) || index + 1,
-              levelName: String(level.name ?? `Level ${index + 1}`),
-              objective: String(level.objective ?? "Complete objective"),
-              instruction: String(level.instruction ?? "Follow instructions"),
-              successText: String(level.successText ?? "Great!"),
-              checkpointsText: Array.isArray(level.checkpoints) ? level.checkpoints.join("\n") : "Review the objective\nComplete the action\nConfirm the result",
-              timeLimit: Number(level.timeLimit) || undefined,
-              bonusMultiplier: Number(level.bonusMultiplier) || undefined,
-            })),
-          ),
-        );
-      }
-
-      setSelectedGameId(gameId);
-      setIsCreateMode(false);
-      setNotice("Game loaded into the form builder.");
-    } catch (loadError) {
-      setError(toErrorMessage(loadError));
-    }
-  }
+  useEffect(() => { void refreshOverview(); }, []);
 
   function switchToCreate(): void {
-    setCoreForm(createDefaultCoreState());
-    setMcqLevels([createDefaultMCQLevel(1)]);
-    setWordLevels([createDefaultWordLevel(1)]);
-    setGridLevels([createDefaultGridLevel(1)]);
-    setDragDropLevels([createDefaultDragDropLevel(1)]);
-    setBoardLevels([createDefaultBoardLevel(1)]);
-    setCustomLevels([createDefaultCustomLevel(1)]);
-    setIsCreateMode(true);
-    setSelectedGameId("");
-    setNotice("New game form ready. Add levels and save.");
-    setError(null);
+    const defaults = createDefaultCoreState();
+    setCoreForm(defaults); setMcqLevels([createDefaultMCQLevel(1)]); setWordLevels([createDefaultWordLevel(1)]); setGridLevels([createDefaultGridLevel(1)]); setDragDropLevels([createDefaultDragDropLevel(1)]); setBoardLevels([createDefaultBoardLevel(1)]); setCustomLevels([createDefaultCustomLevel(1, defaults.customRendererKind)]); setSelectedGameId(""); setIsCreateMode(true); setError(null); setNotice("New game form ready."); setLevelRemovalNumber(1);
   }
 
-  async function saveGame(): Promise<void> {
-    setError(null);
-    setNotice(null);
-
-    setIsSaving(true);
-    try {
-      if (isCreateMode) {
-        await createAdminGame(generatedConfig, coreForm.directoryName || undefined);
-        setNotice("Game created successfully from form data.");
-      } else {
-        if (!selectedGameId) {
-          setError("Select a game to update.");
-          return;
-        }
-
-        await updateAdminGame(selectedGameId, generatedConfig);
-        setNotice("Game updated successfully from form data.");
-      }
-
-      await refreshOverview();
-    } catch (saveError) {
-      setError(toErrorMessage(saveError));
-    } finally {
-      setIsSaving(false);
-    }
+  function hydrateBuilder(game: Record<string, any>, mode: "create" | "edit", gameId?: string): void {
+    const defaults = createDefaultCoreState(); const rawGameType = String(game.gameType ?? defaults.gameType); const customKind = inferCustomRendererKind(Array.isArray(game.levels) ? game.levels[0] : undefined); const gameType = (rawGameType === "CUSTOM" ? (customKind === "math" ? "MATH" : "PLATFORMER") : rawGameType) as GameType;
+    setCoreForm({ ...defaults, schemaVersion: game.schemaVersion === 2 ? 2 : 1, gameId: String(game.gameId ?? defaults.gameId), title: String(game.title ?? defaults.title), description: String(game.description ?? defaults.description), version: String(game.version ?? defaults.version), gameType, difficulty: parseDifficulty(game.difficulty), directoryName: mode === "edit" ? (overview?.games.find((entry) => entry.gameId === gameId)?.directory ?? "") : "", author: String(game.metadata?.author ?? defaults.author), targetSkill: String(game.metadata?.targetSkill ?? defaults.targetSkill), tagsText: Array.isArray(game.metadata?.tags) ? game.metadata.tags.join(",") : defaults.tagsText, estimatedPlayTime: Number(game.metadata?.estimatedPlayTime) || defaults.estimatedPlayTime, timerType: game.timerConfig?.type === "countup" ? "countup" : "countdown", timerDuration: Number(game.timerConfig?.duration) || defaults.timerDuration, warningAtText: Array.isArray(game.timerConfig?.warningAt) ? game.timerConfig.warningAt.join(",") : defaults.warningAtText, basePoints: Number(game.scoringConfig?.basePoints) || defaults.basePoints, bonusMultiplier: Number(game.scoringConfig?.bonusMultiplier) || defaults.bonusMultiplier, penaltyPerHint: Number(game.scoringConfig?.penaltyPerHint) || defaults.penaltyPerHint, penaltyPerWrong: Number(game.scoringConfig?.penaltyPerWrong) || defaults.penaltyPerWrong, timeBonusFormula: game.scoringConfig?.timeBonusFormula === "linear" || game.scoringConfig?.timeBonusFormula === "exponential" ? game.scoringConfig.timeBonusFormula : "none", timeBonusMultiplier: Number(game.scoringConfig?.timeBonusMultiplier) || defaults.timeBonusMultiplier, adaptiveEnabled: Boolean(game.adaptiveConfig?.enabled), adaptiveSupportThreshold: Number(game.adaptiveConfig?.supportThreshold) || defaults.adaptiveSupportThreshold, adaptiveChallengeThreshold: Number(game.adaptiveConfig?.challengeThreshold) || defaults.adaptiveChallengeThreshold, adaptiveTimerAdjustmentSeconds: Number(game.adaptiveConfig?.timerAdjustmentSeconds) || defaults.adaptiveTimerAdjustmentSeconds, adaptiveMultiplierAdjustment: Number(game.adaptiveConfig?.multiplierAdjustment) || defaults.adaptiveMultiplierAdjustment, aiEnabled: Boolean(game.aiConfig?.enabled ?? true), aiProvider: game.aiConfig?.provider === "openai-compatible" || game.aiConfig?.provider === "google-genai" ? game.aiConfig.provider : "local-template", smartboardEnabled: Boolean(game.uiConfig?.smartboard?.enabled), smartboardFullscreen: game.uiConfig?.smartboard?.allowFullscreen !== false, customRendererKind: customKind });
+    const levels = Array.isArray(game.levels) ? game.levels : [];
+    if (gameType === "MCQ") setMcqLevels(assignLevelNumbers(levels.map((level: any, index: number) => ({ levelNumber: Number(level.levelNumber) || index + 1, question: String(level.questions?.[0]?.question ?? `Level ${index + 1} question`), optionA: String(level.questions?.[0]?.options?.[0]?.text ?? "Option A"), optionB: String(level.questions?.[0]?.options?.[1]?.text ?? "Option B"), optionC: String(level.questions?.[0]?.options?.[2]?.text ?? "Option C"), optionD: String(level.questions?.[0]?.options?.[3]?.text ?? "Option D"), correctOptionId: level.questions?.[0]?.correctOptionId === "B" || level.questions?.[0]?.correctOptionId === "C" || level.questions?.[0]?.correctOptionId === "D" ? level.questions[0].correctOptionId : "A", timeLimit: Number(level.timeLimit) || undefined, bonusMultiplier: Number(level.bonusMultiplier) || undefined }))));
+    if (gameType === "WORD") setWordLevels(assignLevelNumbers(levels.map((level: any, index: number) => ({ levelNumber: Number(level.levelNumber) || index + 1, availableLettersText: Array.isArray(level.availableLetters) ? level.availableLetters.join(",") : "C,A,T", wordsText: Array.isArray(level.validWords) ? level.validWords.map((entry: any) => String(entry.word)).join(",") : "CAT,DOG", timeLimit: Number(level.timeLimit) || undefined, bonusMultiplier: Number(level.bonusMultiplier) || undefined }))));
+    if (gameType === "GRID") setGridLevels(assignLevelNumbers(levels.map((level: any, index: number) => ({ levelNumber: Number(level.levelNumber) || index + 1, gridSize: Number(level.gridSize) || 4, cluesCount: Array.isArray(level.preFilledCells) ? level.preFilledCells.length : 4, timeLimit: Number(level.timeLimit) || undefined, bonusMultiplier: Number(level.bonusMultiplier) || undefined }))));
+    if (gameType === "DRAG_DROP") setDragDropLevels(assignLevelNumbers(levels.map((level: any, index: number) => ({ levelNumber: Number(level.levelNumber) || index + 1, itemsText: Array.isArray(level.items) ? level.items.map((item: any) => item.label).join(",") : "Apple,Carrot", targetsText: Array.isArray(level.targets) ? level.targets.map((target: any) => target.label).join(",") : "Fruit,Vegetable", timeLimit: Number(level.timeLimit) || undefined, bonusMultiplier: Number(level.bonusMultiplier) || undefined }))));
+    if (gameType === "BOARD") setBoardLevels(assignLevelNumbers(levels.map((level: any, index: number) => ({ levelNumber: Number(level.levelNumber) || index + 1, rows: Array.isArray(level.board) ? level.board.length : 5, cols: Array.isArray(level.board) && level.board[0] ? String(level.board[0]).length : 6, blockagesText: Array.isArray(level.board) ? level.board.flatMap((row: string, rowIndex: number) => row.split("").map((tile, colIndex) => ({ tile, rowIndex, colIndex })).filter((entry) => entry.tile === "#").map((entry) => `${entry.rowIndex + 1},${entry.colIndex + 1}`)).join(";") : "", tasksText: Array.isArray(level.tasks) ? level.tasks.map((task: any) => `${Number(task.row) + 1},${Number(task.col) + 1}`).join(";") : "", checkpointsText: Array.isArray(level.checkpoints) ? level.checkpoints.map((checkpoint: any) => `${Number(checkpoint.row) + 1},${Number(checkpoint.col) + 1}`).join(";") : "", enemyPatrolsText: Array.isArray(level.enemies) ? level.enemies.map((enemy: any) => [Number(enemy.row) + 1, Number(enemy.col) + 1, enemy.movement === "vertical" ? "vertical" : "horizontal", Number(enemy.min) + 1, Number(enemy.max) + 1, Number(enemy.speed) || 1].join(",")).join(";") : "", timeLimit: Number(level.timeLimit) || undefined, bonusMultiplier: Number(level.bonusMultiplier) || undefined }))));
+    if (gameType === "PLATFORMER" || gameType === "MATH") setCustomLevels(assignLevelNumbers(levels.map((level: any, index: number) => { const rendererKind = gameType === "MATH" ? "math" : "platformer"; return { levelNumber: Number(level.levelNumber) || index + 1, levelName: String(level.name ?? `Level ${index + 1}`), objective: String(level.objective ?? "Complete the objective"), instruction: String(level.instruction ?? "Follow the instructions"), successText: String(level.successText ?? "Great job!"), rendererKind, scenarioCheckpointsText: "", boardRows: Array.isArray(level.board) ? level.board.length : 4, boardCols: Array.isArray(level.board) && level.board[0] ? String(level.board[0]).length : 7, boardBlockagesText: Array.isArray(level.board) ? level.board.flatMap((row: string, rowIndex: number) => row.split("").map((tile, colIndex) => ({ tile, rowIndex, colIndex })).filter((entry) => entry.tile === "#").map((entry) => `${entry.rowIndex + 1},${entry.colIndex + 1}`)).join(";") : "", boardTasksText: Array.isArray(level.boardTasks) ? level.boardTasks.map((task: any) => `${Number(task.row) + 1},${Number(task.col) + 1}`).join(";") : "", boardCheckpointsText: Array.isArray(level.boardCheckpoints) ? level.boardCheckpoints.map((checkpoint: any) => `${Number(checkpoint.row) + 1},${Number(checkpoint.col) + 1}`).join(";") : "", enemyPatrolsText: Array.isArray(level.enemies) ? level.enemies.map((enemy: any) => [Number(enemy.row) + 1, Number(enemy.col) + 1, enemy.movement === "vertical" ? "vertical" : "horizontal", Number(enemy.min) + 1, Number(enemy.max) + 1, Number(enemy.speed) || 1].join(",")).join(";") : "", promptsText: Array.isArray(level.prompts) ? serializeMathPrompts(level.prompts) : "8 + 4 = ?|12|12|10|14|11", passingScore: Number(level.passingScore) || 70, timeLimit: Number(level.timeLimit) || undefined, bonusMultiplier: Number(level.bonusMultiplier) || undefined }; })));
+    setSelectedGameId(mode === "edit" ? (gameId ?? String(game.gameId ?? "")) : ""); setIsCreateMode(mode === "create");
   }
 
-  async function removeGame(): Promise<void> {
-    if (!selectedGameId || isCreateMode) {
-      setError("Choose an existing game before deleting.");
-      return;
-    }
+  async function loadGameIntoBuilder(gameId: string): Promise<void> { setError(null); setNotice(null); try { hydrateBuilder(await getAdminGame(gameId) as Record<string, any>, "edit", gameId); setNotice("Game loaded into the builder."); } catch (loadError) { setError(toErrorMessage(loadError)); } }
+  async function saveGame(): Promise<void> { setIsSaving(true); setError(null); setNotice(null); try { if (isCreateMode) { await createAdminGame(generatedConfig, coreForm.directoryName || undefined); setSelectedGameId(String(generatedConfig.gameId ?? coreForm.gameId)); setIsCreateMode(false); setNotice("Game created successfully and loaded for editing."); } else { if (!selectedGameId) throw new Error("Select a game to update."); await updateAdminGame(selectedGameId, generatedConfig); setNotice("Game updated successfully."); } await refreshOverview(); } catch (saveError) { setError(toErrorMessage(saveError)); } finally { setIsSaving(false); } }
+  async function removeGame(): Promise<void> { if (!selectedGameId || isCreateMode) { setError("Choose an existing game before deleting."); return; } if (!window.confirm(`Delete '${selectedGameId}' and its folder?`)) return; setIsDeleting(true); setError(null); setNotice(null); try { await deleteAdminGame(selectedGameId); switchToCreate(); await refreshOverview(); setNotice("Game deleted successfully."); } catch (deleteError) { setError(toErrorMessage(deleteError)); } finally { setIsDeleting(false); } }
+  async function generateAiGameDraft(): Promise<void> { setIsAiBusy(true); setError(null); setNotice(null); try { hydrateBuilder(await generateAdminGameDraft({ prompt: aiPrompt, gameType: coreForm.gameType, difficulty: coreForm.difficulty, targetSkill: coreForm.targetSkill, aiProvider: coreForm.aiProvider }) as Record<string, any>, "create"); setNotice("AI drafted a new game. Review and save when ready."); } catch (aiError) { setError(toErrorMessage(aiError)); } finally { setIsAiBusy(false); } }
+  async function generateAiLevels(): Promise<void> { setIsAiBusy(true); setError(null); setNotice(null); try { hydrateBuilder(await generateAdminLevels({ config: generatedConfig, prompt: aiPrompt, count: aiLevelCount, aiProvider: coreForm.aiProvider }) as Record<string, any>, isCreateMode ? "create" : "edit", selectedGameId); setNotice(`AI appended ${aiLevelCount} level(s) after reading the current progression.`); } catch (aiError) { setError(toErrorMessage(aiError)); } finally { setIsAiBusy(false); } }
 
-    const confirmed = window.confirm(`Delete game '${selectedGameId}' and its folder? This cannot be undone.`);
-    if (!confirmed) {
-      return;
-    }
-
-    setIsDeleting(true);
-    setError(null);
-    setNotice(null);
-    try {
-      await deleteAdminGame(selectedGameId);
-      setNotice("Game deleted successfully.");
-      switchToCreate();
-      await refreshOverview();
-    } catch (deleteError) {
-      setError(toErrorMessage(deleteError));
-    } finally {
-      setIsDeleting(false);
-    }
-  }
-
-  function addLevel(): void {
-    if (coreForm.gameType === "MCQ") {
-      setMcqLevels((prev) => [...assignLevelNumbers(prev), createDefaultMCQLevel(prev.length + 1)]);
-      return;
-    }
-
-    if (coreForm.gameType === "WORD") {
-      setWordLevels((prev) => [...assignLevelNumbers(prev), createDefaultWordLevel(prev.length + 1)]);
-      return;
-    }
-
-    if (coreForm.gameType === "GRID") {
-      setGridLevels((prev) => [...assignLevelNumbers(prev), createDefaultGridLevel(prev.length + 1)]);
-      return;
-    }
-
-    if (coreForm.gameType === "DRAG_DROP") {
-      setDragDropLevels((prev) => [...assignLevelNumbers(prev), createDefaultDragDropLevel(prev.length + 1)]);
-      return;
-    }
-
-    if (coreForm.gameType === "BOARD") {
-      setBoardLevels((prev) => [...assignLevelNumbers(prev), createDefaultBoardLevel(prev.length + 1)]);
-      return;
-    }
-
-    setCustomLevels((prev) => [...assignLevelNumbers(prev), createDefaultCustomLevel(prev.length + 1)]);
-  }
-
-  function removeLastLevel(): void {
-    if (coreForm.gameType === "MCQ") {
-      setMcqLevels((prev) => (prev.length > 1 ? assignLevelNumbers(prev.slice(0, -1)) : prev));
-      return;
-    }
-
-    if (coreForm.gameType === "WORD") {
-      setWordLevels((prev) => (prev.length > 1 ? assignLevelNumbers(prev.slice(0, -1)) : prev));
-      return;
-    }
-
-    if (coreForm.gameType === "GRID") {
-      setGridLevels((prev) => (prev.length > 1 ? assignLevelNumbers(prev.slice(0, -1)) : prev));
-      return;
-    }
-
-    if (coreForm.gameType === "DRAG_DROP") {
-      setDragDropLevels((prev) => (prev.length > 1 ? assignLevelNumbers(prev.slice(0, -1)) : prev));
-      return;
-    }
-
-    if (coreForm.gameType === "BOARD") {
-      setBoardLevels((prev) => (prev.length > 1 ? assignLevelNumbers(prev.slice(0, -1)) : prev));
-      return;
-    }
-
-    setCustomLevels((prev) => (prev.length > 1 ? assignLevelNumbers(prev.slice(0, -1)) : prev));
-  }
-
-  const activeLevelCount =
-    coreForm.gameType === "MCQ"
-      ? mcqLevels.length
-      : coreForm.gameType === "WORD"
-        ? wordLevels.length
-        : coreForm.gameType === "GRID"
-          ? gridLevels.length
-          : coreForm.gameType === "DRAG_DROP"
-            ? dragDropLevels.length
-            : coreForm.gameType === "BOARD"
-              ? boardLevels.length
-              : customLevels.length;
+  const addLevel = () => coreForm.gameType === "MCQ" ? setMcqLevels((prev) => [...assignLevelNumbers(prev), createDefaultMCQLevel(prev.length + 1)]) : coreForm.gameType === "WORD" ? setWordLevels((prev) => [...assignLevelNumbers(prev), createDefaultWordLevel(prev.length + 1)]) : coreForm.gameType === "GRID" ? setGridLevels((prev) => [...assignLevelNumbers(prev), createDefaultGridLevel(prev.length + 1)]) : coreForm.gameType === "DRAG_DROP" ? setDragDropLevels((prev) => [...assignLevelNumbers(prev), createDefaultDragDropLevel(prev.length + 1)]) : coreForm.gameType === "BOARD" ? setBoardLevels((prev) => [...assignLevelNumbers(prev), createDefaultBoardLevel(prev.length + 1)]) : setCustomLevels((prev) => [...assignLevelNumbers(prev), createDefaultCustomLevel(prev.length + 1, coreForm.gameType === "MATH" ? "math" : "platformer")]);
+  const removeLastLevel = () => coreForm.gameType === "MCQ" ? setMcqLevels((prev) => prev.length > 1 ? assignLevelNumbers(prev.slice(0, -1)) : prev) : coreForm.gameType === "WORD" ? setWordLevels((prev) => prev.length > 1 ? assignLevelNumbers(prev.slice(0, -1)) : prev) : coreForm.gameType === "GRID" ? setGridLevels((prev) => prev.length > 1 ? assignLevelNumbers(prev.slice(0, -1)) : prev) : coreForm.gameType === "DRAG_DROP" ? setDragDropLevels((prev) => prev.length > 1 ? assignLevelNumbers(prev.slice(0, -1)) : prev) : coreForm.gameType === "BOARD" ? setBoardLevels((prev) => prev.length > 1 ? assignLevelNumbers(prev.slice(0, -1)) : prev) : setCustomLevels((prev) => prev.length > 1 ? assignLevelNumbers(prev.slice(0, -1)) : prev);
+  const removeLevelAt = (levelIndex: number) => {
+    if (levelIndex < 0) return;
+    if (coreForm.gameType === "MCQ") setMcqLevels((prev) => prev.length > 1 ? assignLevelNumbers(prev.filter((_, index) => index !== levelIndex)) : prev);
+    else if (coreForm.gameType === "WORD") setWordLevels((prev) => prev.length > 1 ? assignLevelNumbers(prev.filter((_, index) => index !== levelIndex)) : prev);
+    else if (coreForm.gameType === "GRID") setGridLevels((prev) => prev.length > 1 ? assignLevelNumbers(prev.filter((_, index) => index !== levelIndex)) : prev);
+    else if (coreForm.gameType === "DRAG_DROP") setDragDropLevels((prev) => prev.length > 1 ? assignLevelNumbers(prev.filter((_, index) => index !== levelIndex)) : prev);
+    else if (coreForm.gameType === "BOARD") setBoardLevels((prev) => prev.length > 1 ? assignLevelNumbers(prev.filter((_, index) => index !== levelIndex)) : prev);
+    else setCustomLevels((prev) => prev.length > 1 ? assignLevelNumbers(prev.filter((_, index) => index !== levelIndex)) : prev);
+  };
+  const activeLevelCount = coreForm.gameType === "MCQ" ? mcqLevels.length : coreForm.gameType === "WORD" ? wordLevels.length : coreForm.gameType === "GRID" ? gridLevels.length : coreForm.gameType === "DRAG_DROP" ? dragDropLevels.length : coreForm.gameType === "BOARD" ? boardLevels.length : customLevels.length;
+  useEffect(() => { setLevelRemovalNumber((current) => Math.max(1, Math.min(current, activeLevelCount))); }, [activeLevelCount]);
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      {/* â”€â”€ Page header â”€â”€ */}
       <div className="flex items-center justify-between gap-4 mb-8 flex-wrap">
-        <div>
-          <p className="eyebrow mb-1">Admin Dashboard</p>
-          <h1 className="font-display font-bold text-2xl text-ink">Game Management</h1>
-        </div>
-        <div className="flex gap-2">
-          <Button variant="secondary" size="sm" onClick={() => void refreshOverview()} disabled={isLoading}>
-            {isLoading ? "Refreshingâ€¦" : "âŸ³ Refresh"}
-          </Button>
-          <Button size="sm" onClick={switchToCreate}>
-            + New Game
-          </Button>
-        </div>
+        <div><p className="eyebrow mb-1">Admin Dashboard</p><h1 className="font-display font-bold text-2xl text-ink">AI Builder + Engine Authoring</h1></div>
+        <div className="flex gap-2"><Button variant="secondary" size="sm" onClick={() => void refreshOverview()} disabled={isLoading}>{isLoading ? "Refreshing..." : "Refresh"}</Button><Button size="sm" onClick={switchToCreate}>New Game</Button></div>
       </div>
-
-      {/* â”€â”€ Stats strip â”€â”€ */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
-        {[
-          { label: "Total Games", value: overview?.overall.totalGames ?? 0 },
-          { label: "Submissions", value: overview?.overall.submissions ?? 0 },
-          { label: "Valid Ranked", value: overview?.overall.validSubmissions ?? 0 },
-          { label: "Unique Players", value: overview?.overall.players ?? 0 },
-        ].map((stat) => (
-          <div key={stat.label} className="metric-block bg-white border border-gray-100 shadow-card">
-            <span>{stat.label}</span>
-            <strong>{stat.value}</strong>
-          </div>
-        ))}
-      </div>
-
-      {/* â”€â”€ Main content â”€â”€ */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">{[{ label: "Total Games", value: overview?.overall.totalGames ?? 0 }, { label: "Submissions", value: overview?.overall.submissions ?? 0 }, { label: "Valid Ranked", value: overview?.overall.validSubmissions ?? 0 }, { label: "Players", value: overview?.overall.players ?? 0 }].map((stat) => <div key={stat.label} className="metric-block bg-white border border-gray-100 shadow-card"><span>{stat.label}</span><strong>{stat.value}</strong></div>)}</div>
       <div className="grid grid-cols-1 xl:grid-cols-[1fr_360px] gap-6">
-
-        {/* â”€â”€ Left: Game builder â”€â”€ */}
         <div className="space-y-6">
-          {/* Header */}
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-card p-6">
-            <div className="flex items-center justify-between gap-4 flex-wrap mb-6">
-              <div>
-                <p className="eyebrow mb-0.5">Game Builder</p>
-                <h2 className="font-display font-bold text-lg text-ink">
-                  {isCreateMode ? "Create New Game" : `Editing: ${selectedGameId}`}
-                </h2>
-              </div>
-              <div className="flex gap-2">
-                <Button onClick={() => void saveGame()} disabled={isSaving} size="sm">
-                  {isSaving ? "Savingâ€¦" : isCreateMode ? "Create Game" : "Update Game"}
-                </Button>
-                {!isCreateMode ? (
-                  <Button variant="danger" size="sm" onClick={() => void removeGame()} disabled={isDeleting}>
-                    {isDeleting ? "Deletingâ€¦" : "Delete"}
-                  </Button>
-                ) : null}
-              </div>
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-card p-6 space-y-4">
+            <div className="flex items-center justify-between gap-4 flex-wrap">
+              <div><p className="eyebrow mb-0.5">Game Builder</p><h2 className="font-display font-bold text-lg text-ink">{isCreateMode ? "Create New Game" : `Editing ${selectedGameId}`}</h2></div>
+              <div className="flex gap-2"><Button onClick={() => void saveGame()} disabled={isSaving} size="sm">{isSaving ? "Saving..." : isCreateMode ? "Create Game" : "Update Game"}</Button>{!isCreateMode ? <Button variant="danger" size="sm" onClick={() => void removeGame()} disabled={isDeleting}>{isDeleting ? "Deleting..." : "Delete"}</Button> : null}</div>
             </div>
-
-            {error ? <p className="admin-status admin-status-error mb-4">{error}</p> : null}
-            {notice ? <p className="admin-status admin-status-success mb-4">{notice}</p> : null}
-
-            {/* Core form */}
+            {error ? <p className="admin-status admin-status-error">{error}</p> : null}
+            {notice ? <p className="admin-status admin-status-success">{notice}</p> : null}
+            <div className="rounded-2xl border border-teal-100 bg-teal-50/60 p-4 space-y-3">
+              <p className="eyebrow mb-1">AI Authoring</p>
+              <textarea className="admin-input" value={aiPrompt} onChange={(event) => setAiPrompt(event.target.value)} placeholder="Describe the theme, pacing, and learning outcome you want." />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <label className="flex flex-col gap-1.5"><span className="admin-label">AI Provider</span><select className="admin-input" value={coreForm.aiProvider} onChange={(event) => setCoreForm((current) => ({ ...current, aiProvider: event.target.value as AIProvider }))}><option value="local-template">Local Template</option><option value="openai-compatible">OpenAI Compatible</option><option value="google-genai">Google GenAI</option></select></label>
+                <label className="flex flex-col gap-1.5"><span className="admin-label">New Levels</span><input type="number" min={1} max={10} className="admin-input" value={aiLevelCount} onChange={(event) => setAiLevelCount(Math.min(10, Math.max(1, Number(event.target.value) || 1)))} /></label>
+              </div>
+              <div className="flex flex-wrap gap-2"><Button variant="secondary" size="sm" onClick={() => void generateAiGameDraft()} disabled={isAiBusy}>{isAiBusy ? "Working..." : "AI Draft New Game"}</Button><Button variant="secondary" size="sm" onClick={() => void generateAiLevels()} disabled={isAiBusy}>{isAiBusy ? "Working..." : "AI Add Levels"}</Button></div>
+            </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <label className="flex flex-col gap-1.5">
-                <span className="admin-label">Game ID</span>
-                <input className="admin-input" value={coreForm.gameId}
-                  onChange={(e) => setCoreForm((p) => ({ ...p, gameId: e.target.value }))} />
-              </label>
-              <label className="flex flex-col gap-1.5">
-                <span className="admin-label">Title</span>
-                <input className="admin-input" value={coreForm.title}
-                  onChange={(e) => setCoreForm((p) => ({ ...p, title: e.target.value }))} />
-              </label>
-              <label className="flex flex-col gap-1.5 sm:col-span-2">
-                <span className="admin-label">Description</span>
-                <textarea className="admin-input" value={coreForm.description}
-                  onChange={(e) => setCoreForm((p) => ({ ...p, description: e.target.value }))} />
-              </label>
-              <label className="flex flex-col gap-1.5">
-                <span className="admin-label">Game Type</span>
-                <select className="admin-input" value={coreForm.gameType}
-                  onChange={(e) => setCoreForm((p) => ({ ...p, gameType: e.target.value as GameType }))}>
-                  <option value="MCQ">Quiz (MCQ)</option>
-                  <option value="WORD">Word Builder</option>
-                  <option value="GRID">Number Grid Puzzle</option>
-                  <option value="DRAG_DROP">Drag and Drop Match</option>
-                  <option value="BOARD">Maze / Board Runner</option>
-                  <option value="CUSTOM">Custom Scenario</option>
-                </select>
-              </label>
-              <label className="flex flex-col gap-1.5">
-                <span className="admin-label">Difficulty</span>
-                <select className="admin-input" value={coreForm.difficulty}
-                  onChange={(e) => setCoreForm((p) => ({ ...p, difficulty: e.target.value as Difficulty }))}>
-                  <option value="easy">Easy</option>
-                  <option value="medium">Medium</option>
-                  <option value="hard">Hard</option>
-                </select>
-              </label>
-              <label className="flex flex-col gap-1.5">
-                <span className="admin-label">Version</span>
-                <input className="admin-input" value={coreForm.version}
-                  onChange={(e) => setCoreForm((p) => ({ ...p, version: e.target.value }))} />
-              </label>
-              <label className="flex flex-col gap-1.5">
-                <span className="admin-label">Folder Name (create only)</span>
-                <input className="admin-input" value={coreForm.directoryName} disabled={!isCreateMode}
-                  onChange={(e) => setCoreForm((p) => ({ ...p, directoryName: e.target.value }))} />
-              </label>
-              <label className="flex flex-col gap-1.5">
-                <span className="admin-label">Author</span>
-                <input className="admin-input" value={coreForm.author}
-                  onChange={(e) => setCoreForm((p) => ({ ...p, author: e.target.value }))} />
-              </label>
-              <label className="flex flex-col gap-1.5">
-                <span className="admin-label">Target Skill</span>
-                <input className="admin-input" value={coreForm.targetSkill}
-                  onChange={(e) => setCoreForm((p) => ({ ...p, targetSkill: e.target.value }))} />
-              </label>
-              <label className="flex flex-col gap-1.5 sm:col-span-2">
-                <span className="admin-label">Tags (comma separated)</span>
-                <input className="admin-input" value={coreForm.tagsText}
-                  onChange={(e) => setCoreForm((p) => ({ ...p, tagsText: e.target.value }))} />
-              </label>
-              <label className="flex flex-col gap-1.5">
-                <span className="admin-label">Estimated Play Time (min)</span>
-                <input type="number" className="admin-input" value={coreForm.estimatedPlayTime}
-                  onChange={(e) => setCoreForm((p) => ({ ...p, estimatedPlayTime: Number(e.target.value) || 1 }))} />
-              </label>
-              <label className="flex flex-col gap-1.5">
-                <span className="admin-label">Timer Type</span>
-                <select className="admin-input" value={coreForm.timerType}
-                  onChange={(e) => setCoreForm((p) => ({ ...p, timerType: e.target.value as "countdown" | "countup" }))}>
-                  <option value="countdown">Countdown</option>
-                  <option value="countup">Count Up</option>
-                </select>
-              </label>
-              <label className="flex flex-col gap-1.5">
-                <span className="admin-label">Timer Duration (sec)</span>
-                <input type="number" className="admin-input" value={coreForm.timerDuration}
-                  onChange={(e) => setCoreForm((p) => ({ ...p, timerDuration: Number(e.target.value) || 10 }))} />
-              </label>
-              <label className="flex flex-col gap-1.5">
-                <span className="admin-label">Warning At (comma separated)</span>
-                <input className="admin-input" value={coreForm.warningAtText}
-                  onChange={(e) => setCoreForm((p) => ({ ...p, warningAtText: e.target.value }))} />
-              </label>
-              <label className="flex flex-col gap-1.5">
-                <span className="admin-label">Base Points</span>
-                <input type="number" className="admin-input" value={coreForm.basePoints}
-                  onChange={(e) => setCoreForm((p) => ({ ...p, basePoints: Number(e.target.value) || 1 }))} />
-              </label>
-              <label className="flex flex-col gap-1.5">
-                <span className="admin-label">Level Bonus Multiplier</span>
-                <input type="number" className="admin-input" value={coreForm.bonusMultiplier}
-                  onChange={(e) => setCoreForm((p) => ({ ...p, bonusMultiplier: Number(e.target.value) || 1 }))} />
-              </label>
-              <label className="flex flex-col gap-1.5">
-                <span className="admin-label">Penalty Per Hint</span>
-                <input type="number" className="admin-input" value={coreForm.penaltyPerHint}
-                  onChange={(e) => setCoreForm((p) => ({ ...p, penaltyPerHint: Number(e.target.value) || 0 }))} />
-              </label>
-              <label className="flex flex-col gap-1.5">
-                <span className="admin-label">Penalty Per Wrong</span>
-                <input type="number" className="admin-input" value={coreForm.penaltyPerWrong}
-                  onChange={(e) => setCoreForm((p) => ({ ...p, penaltyPerWrong: Number(e.target.value) || 0 }))} />
-              </label>
-              <label className="flex flex-col gap-1.5">
-                <span className="admin-label">Time Bonus Formula</span>
-                <select className="admin-input" value={coreForm.timeBonusFormula}
-                  onChange={(e) => setCoreForm((p) => ({ ...p, timeBonusFormula: e.target.value as "none" | "linear" | "exponential" }))}>
-                  <option value="none">None</option>
-                  <option value="linear">Linear</option>
-                  <option value="exponential">Exponential</option>
-                </select>
-              </label>
-              <label className="flex flex-col gap-1.5">
-                <span className="admin-label">Time Bonus Multiplier</span>
-                <input type="number" className="admin-input" value={coreForm.timeBonusMultiplier}
-                  onChange={(e) => setCoreForm((p) => ({ ...p, timeBonusMultiplier: Number(e.target.value) || 0 }))} />
-              </label>
-              <label className="flex items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-3 py-3">
-                <input
-                  type="checkbox"
-                  checked={coreForm.adaptiveEnabled}
-                  onChange={(e) => setCoreForm((p) => ({ ...p, adaptiveEnabled: e.target.checked }))}
-                />
-                <span className="text-sm font-medium text-ink">Enable adaptive runtime</span>
-              </label>
-              {coreForm.adaptiveEnabled ? (
-                <>
-                  <label className="flex flex-col gap-1.5">
-                    <span className="admin-label">Support Threshold</span>
-                    <input
-                      type="number"
-                      min={0.05}
-                      max={0.95}
-                      step={0.05}
-                      className="admin-input"
-                      value={coreForm.adaptiveSupportThreshold}
-                      onChange={(e) => setCoreForm((p) => ({ ...p, adaptiveSupportThreshold: Number(e.target.value) || 0.5 }))}
-                    />
-                  </label>
-                  <label className="flex flex-col gap-1.5">
-                    <span className="admin-label">Challenge Threshold</span>
-                    <input
-                      type="number"
-                      min={0.1}
-                      max={0.99}
-                      step={0.05}
-                      className="admin-input"
-                      value={coreForm.adaptiveChallengeThreshold}
-                      onChange={(e) => setCoreForm((p) => ({ ...p, adaptiveChallengeThreshold: Number(e.target.value) || 0.85 }))}
-                    />
-                  </label>
-                  <label className="flex flex-col gap-1.5">
-                    <span className="admin-label">Timer Adjustment (sec)</span>
-                    <input
-                      type="number"
-                      min={0}
-                      step={1}
-                      className="admin-input"
-                      value={coreForm.adaptiveTimerAdjustmentSeconds}
-                      onChange={(e) => setCoreForm((p) => ({ ...p, adaptiveTimerAdjustmentSeconds: Number(e.target.value) || 0 }))}
-                    />
-                  </label>
-                  <label className="flex flex-col gap-1.5">
-                    <span className="admin-label">Multiplier Adjustment</span>
-                    <input
-                      type="number"
-                      min={0}
-                      step={0.05}
-                      className="admin-input"
-                      value={coreForm.adaptiveMultiplierAdjustment}
-                      onChange={(e) => setCoreForm((p) => ({ ...p, adaptiveMultiplierAdjustment: Number(e.target.value) || 0 }))}
-                    />
-                  </label>
-                </>
-              ) : null}
-              <label className="flex items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-3 py-3">
-                <input
-                  type="checkbox"
-                  checked={coreForm.aiEnabled}
-                  onChange={(e) => setCoreForm((p) => ({ ...p, aiEnabled: e.target.checked }))}
-                />
-                <span className="text-sm font-medium text-ink">Enable AI/procedural variants</span>
-              </label>
-              <label className="flex flex-col gap-1.5">
-                <span className="admin-label">AI Provider</span>
-                <select
-                  className="admin-input"
-                  value={coreForm.aiProvider}
-                  onChange={(e) => setCoreForm((p) => ({ ...p, aiProvider: e.target.value as "local-template" | "openai-compatible" }))}
-                >
-                  <option value="local-template">Local Template</option>
-                  <option value="openai-compatible">OpenAI Compatible</option>
-                </select>
-              </label>
-              <label className="flex items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-3 py-3">
-                <input
-                  type="checkbox"
-                  checked={coreForm.smartboardEnabled}
-                  onChange={(e) => setCoreForm((p) => ({ ...p, smartboardEnabled: e.target.checked }))}
-                />
-                <span className="text-sm font-medium text-ink">Enable smartboard mode</span>
-              </label>
-              <label className="flex items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-3 py-3 sm:col-span-2">
-                <input
-                  type="checkbox"
-                  checked={coreForm.smartboardFullscreen}
-                  onChange={(e) => setCoreForm((p) => ({ ...p, smartboardFullscreen: e.target.checked }))}
-                />
-                <span className="text-sm font-medium text-ink">Allow fullscreen toggle for large displays</span>
-              </label>
+              <label className="flex flex-col gap-1.5"><span className="admin-label">Game ID</span><input className="admin-input" value={coreForm.gameId} onChange={(event) => setCoreForm((current) => ({ ...current, gameId: event.target.value }))} /></label>
+              <label className="flex flex-col gap-1.5"><span className="admin-label">Title</span><input className="admin-input" value={coreForm.title} onChange={(event) => setCoreForm((current) => ({ ...current, title: event.target.value }))} /></label>
+              <label className="flex flex-col gap-1.5 sm:col-span-2"><span className="admin-label">Description</span><textarea className="admin-input" value={coreForm.description} onChange={(event) => setCoreForm((current) => ({ ...current, description: event.target.value }))} /></label>
+              <label className="flex flex-col gap-1.5"><span className="admin-label">Game Type</span><select className="admin-input" value={coreForm.gameType} onChange={(event) => setCoreForm((current) => ({ ...current, gameType: event.target.value as GameType }))}><option value="BOARD">Maze / Board Runner</option><option value="PLATFORMER">Platformer</option><option value="MATH">Math Sprint</option><option value="MCQ">Quiz</option><option value="WORD">Word Builder</option><option value="GRID">Number Grid</option><option value="DRAG_DROP">Drag and Drop</option></select></label>
+              <label className="flex flex-col gap-1.5"><span className="admin-label">Difficulty</span><select className="admin-input" value={coreForm.difficulty} onChange={(event) => setCoreForm((current) => ({ ...current, difficulty: event.target.value as Difficulty }))}><option value="easy">Easy</option><option value="medium">Medium</option><option value="hard">Hard</option></select></label>
+              <label className="flex flex-col gap-1.5"><span className="admin-label">Target Skill</span><select className="admin-input" value={coreForm.targetSkill} onChange={(event) => setCoreForm((current) => ({ ...current, targetSkill: event.target.value }))}>{LEARNING_OUTCOMES.map((outcome) => <option key={outcome} value={outcome}>{titleCase(outcome)}</option>)}</select></label>
+              <label className="flex flex-col gap-1.5"><span className="admin-label">Folder Name</span><input className="admin-input" value={coreForm.directoryName} disabled={!isCreateMode} onChange={(event) => setCoreForm((current) => ({ ...current, directoryName: event.target.value }))} /></label>
             </div>
           </div>
-
-          {/* Level editor */}
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-card p-6">
-            <div className="flex items-center justify-between gap-3 mb-5 flex-wrap">
-              <div>
-                <h3 className="font-display font-bold text-ink">
-                  {coreForm.gameType} Levels
-                </h3>
-                <p className="text-xs text-ink-muted mt-0.5">{activeLevelCount} level(s)</p>
-              </div>
-              <div className="flex gap-2">
-                <Button variant="secondary" size="sm" onClick={addLevel}>+ Add Level</Button>
-                <Button variant="secondary" size="sm" onClick={removeLastLevel} disabled={activeLevelCount <= 1}>
-                  Remove Last
-                </Button>
-              </div>
-            </div>
-
-            <div className="space-y-5">
-              {coreForm.gameType === "MCQ"
-                ? mcqLevels.map((level, levelIndex) => (
-                    <div key={levelIndex} className="border border-gray-100 rounded-xl p-4 space-y-3 bg-gray-50/50">
-                      <h5 className="text-xs font-bold uppercase tracking-widest text-ink-faint">Level {levelIndex + 1}</h5>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        <label className="flex flex-col gap-1.5">
-                          <span className="admin-label">Options Count</span>
-                          <select className="admin-input" value={level.optionCount}
-                            onChange={(e) => setMcqLevels((prev) => assignLevelNumbers(prev.map((item, index) => index === levelIndex ? { ...item, optionCount: Number(e.target.value) as 2 | 3 | 4 } : item)))}>
-                            <option value={2}>2</option><option value={3}>3</option><option value={4}>4</option>
-                          </select>
-                        </label>
-                        <label className="flex flex-col gap-1.5 sm:col-span-2">
-                          <span className="admin-label">Question</span>
-                          <input className="admin-input" value={level.question}
-                            onChange={(e) => setMcqLevels((prev) => assignLevelNumbers(prev.map((item, index) => index === levelIndex ? { ...item, question: e.target.value } : item)))} />
-                        </label>
-                        <label className="flex flex-col gap-1.5">
-                          <span className="admin-label">Option A</span>
-                          <input className="admin-input" value={level.optionA}
-                            onChange={(e) => setMcqLevels((prev) => assignLevelNumbers(prev.map((item, index) => index === levelIndex ? { ...item, optionA: e.target.value } : item)))} />
-                        </label>
-                        <label className="flex flex-col gap-1.5">
-                          <span className="admin-label">Option B</span>
-                          <input className="admin-input" value={level.optionB}
-                            onChange={(e) => setMcqLevels((prev) => assignLevelNumbers(prev.map((item, index) => index === levelIndex ? { ...item, optionB: e.target.value } : item)))} />
-                        </label>
-                        {level.optionCount >= 3 ? (
-                          <label className="flex flex-col gap-1.5">
-                            <span className="admin-label">Option C</span>
-                            <input className="admin-input" value={level.optionC}
-                              onChange={(e) => setMcqLevels((prev) => assignLevelNumbers(prev.map((item, index) => index === levelIndex ? { ...item, optionC: e.target.value } : item)))} />
-                          </label>
-                        ) : null}
-                        {level.optionCount >= 4 ? (
-                          <label className="flex flex-col gap-1.5">
-                            <span className="admin-label">Option D</span>
-                            <input className="admin-input" value={level.optionD}
-                              onChange={(e) => setMcqLevels((prev) => assignLevelNumbers(prev.map((item, index) => index === levelIndex ? { ...item, optionD: e.target.value } : item)))} />
-                          </label>
-                        ) : null}
-                        <label className="flex flex-col gap-1.5">
-                          <span className="admin-label">Correct Option</span>
-                          <select className="admin-input" value={level.correctOptionId}
-                            onChange={(e) => setMcqLevels((prev) => assignLevelNumbers(prev.map((item, index) => index === levelIndex ? { ...item, correctOptionId: e.target.value as "A" | "B" } : item)))}>
-                            <option value="A">A</option>
-                            <option value="B">B</option>
-                            {level.optionCount >= 3 ? <option value="C">C</option> : null}
-                            {level.optionCount >= 4 ? <option value="D">D</option> : null}
-                          </select>
-                        </label>
-                      </div>
-                    </div>
-                  ))
-                : null}
-
-              {coreForm.gameType === "WORD"
-                ? wordLevels.map((level, levelIndex) => (
-                    <div key={levelIndex} className="border border-gray-100 rounded-xl p-4 space-y-3 bg-gray-50/50">
-                      <h5 className="text-xs font-bold uppercase tracking-widest text-ink-faint">Level {levelIndex + 1}</h5>
-                      <div className="grid grid-cols-1 gap-3">
-                        <label className="flex flex-col gap-1.5">
-                          <span className="admin-label">Available Letters (comma separated)</span>
-                          <input className="admin-input" value={level.availableLettersText}
-                            onChange={(e) => setWordLevels((prev) => assignLevelNumbers(prev.map((item, index) => index === levelIndex ? { ...item, availableLettersText: e.target.value } : item)))} />
-                        </label>
-                        <label className="flex flex-col gap-1.5">
-                          <span className="admin-label">Valid Words (comma separated)</span>
-                          <input className="admin-input" value={level.wordsText}
-                            onChange={(e) => setWordLevels((prev) => assignLevelNumbers(prev.map((item, index) => index === levelIndex ? { ...item, wordsText: e.target.value } : item)))} />
-                        </label>
-                      </div>
-                    </div>
-                  ))
-                : null}
-
-              {coreForm.gameType === "GRID"
-                ? gridLevels.map((level, levelIndex) => (
-                    <div key={levelIndex} className="border border-gray-100 rounded-xl p-4 space-y-3 bg-gray-50/50">
-                      <h5 className="text-xs font-bold uppercase tracking-widest text-ink-faint">Level {levelIndex + 1}</h5>
-                      <div className="grid grid-cols-2 gap-3">
-                        <label className="flex flex-col gap-1.5">
-                          <span className="admin-label">Grid Size (2â€“9)</span>
-                          <input type="number" min={2} max={9} className="admin-input" value={level.gridSize}
-                            onChange={(e) => setGridLevels((prev) => assignLevelNumbers(prev.map((item, index) => index === levelIndex ? { ...item, gridSize: Number(e.target.value) || 2 } : item)))} />
-                        </label>
-                        <label className="flex flex-col gap-1.5">
-                          <span className="admin-label">Clues to Reveal</span>
-                          <input type="number" min={1} className="admin-input" value={level.cluesCount}
-                            onChange={(e) => setGridLevels((prev) => assignLevelNumbers(prev.map((item, index) => index === levelIndex ? { ...item, cluesCount: Number(e.target.value) || 1 } : item)))} />
-                        </label>
-                      </div>
-                    </div>
-                  ))
-                : null}
-
-              {coreForm.gameType === "DRAG_DROP"
-                ? dragDropLevels.map((level, levelIndex) => (
-                    <div key={levelIndex} className="border border-gray-100 rounded-xl p-4 space-y-3 bg-gray-50/50">
-                      <h5 className="text-xs font-bold uppercase tracking-widest text-ink-faint">Level {levelIndex + 1}</h5>
-                      <div className="grid grid-cols-1 gap-3">
-                        <label className="flex flex-col gap-1.5">
-                          <span className="admin-label">Items (comma separated)</span>
-                          <input className="admin-input" value={level.itemsText}
-                            onChange={(e) => setDragDropLevels((prev) => assignLevelNumbers(prev.map((item, index) => index === levelIndex ? { ...item, itemsText: e.target.value } : item)))} />
-                        </label>
-                        <label className="flex flex-col gap-1.5">
-                          <span className="admin-label">Targets (comma separated)</span>
-                          <input className="admin-input" value={level.targetsText}
-                            onChange={(e) => setDragDropLevels((prev) => assignLevelNumbers(prev.map((item, index) => index === levelIndex ? { ...item, targetsText: e.target.value } : item)))} />
-                        </label>
-                      </div>
-                    </div>
-                  ))
-                : null}
-
-              {coreForm.gameType === "BOARD"
-                ? boardLevels.map((level, levelIndex) => (
-                    <div key={levelIndex} className="border border-gray-100 rounded-xl p-4 space-y-3 bg-gray-50/50">
-                      <h5 className="text-xs font-bold uppercase tracking-widest text-ink-faint">Level {levelIndex + 1}</h5>
-                      <div className="grid grid-cols-2 gap-3">
-                        <label className="flex flex-col gap-1.5">
-                          <span className="admin-label">Rows (min 3)</span>
-                          <input type="number" min={3} className="admin-input" value={level.rows}
-                            onChange={(e) => setBoardLevels((prev) => assignLevelNumbers(prev.map((item, index) => index === levelIndex ? { ...item, rows: Number(e.target.value) || 3 } : item)))} />
-                        </label>
-                        <label className="flex flex-col gap-1.5">
-                          <span className="admin-label">Columns (min 3)</span>
-                          <input type="number" min={3} className="admin-input" value={level.cols}
-                            onChange={(e) => setBoardLevels((prev) => assignLevelNumbers(prev.map((item, index) => index === levelIndex ? { ...item, cols: Number(e.target.value) || 3 } : item)))} />
-                        </label>
-                        <label className="flex flex-col gap-1.5 col-span-2">
-                          <span className="admin-label">Blockages (#) as row,col;row,col (1-based)</span>
-                          <input className="admin-input" placeholder="2,2;2,3;3,3" value={level.blockagesText}
-                            onChange={(e) => setBoardLevels((prev) => assignLevelNumbers(prev.map((item, index) => index === levelIndex ? { ...item, blockagesText: e.target.value } : item)))} />
-                        </label>
-                        <label className="flex flex-col gap-1.5 col-span-2">
-                          <span className="admin-label">Task Cells (T) as row,col;row,col (1-based)</span>
-                          <input className="admin-input" placeholder="2,4;3,4" value={level.tasksText}
-                            onChange={(e) => setBoardLevels((prev) => assignLevelNumbers(prev.map((item, index) => index === levelIndex ? { ...item, tasksText: e.target.value } : item)))} />
-                        </label>
-                        <div className="col-span-2 space-y-3 rounded-xl border border-dashed border-gray-200 bg-white p-4">
-                          <div className="flex items-center justify-between gap-3 flex-wrap">
-                            <span className="admin-label">Enemy Patrol Builder</span>
-                            <Button
-                              variant="secondary"
-                              size="sm"
-                              onClick={() => updateBoardEnemyRows(levelIndex, (rows) => ([
-                                ...rows,
-                                { row: 2, col: 2, movement: "horizontal", min: 1, max: Math.max(2, level.cols - 1), speed: 1 },
-                              ]))}
-                            >
-                              + Add Patrol
-                            </Button>
-                          </div>
-                          {parseEnemyPatrolRows(level.enemyPatrolsText).length > 0 ? (
-                            <div className="space-y-2">
-                              {parseEnemyPatrolRows(level.enemyPatrolsText).map((enemy, enemyIndex) => (
-                                <div key={`${enemyIndex}-${enemy.row}-${enemy.col}`} className="grid grid-cols-2 md:grid-cols-7 gap-2 items-end rounded-xl border border-gray-100 bg-gray-50 p-3">
-                                  <label className="flex flex-col gap-1">
-                                    <span className="admin-label">Row</span>
-                                    <input
-                                      type="number"
-                                      min={1}
-                                      className="admin-input"
-                                      value={enemy.row}
-                                      onChange={(e) => updateBoardEnemyRows(levelIndex, (rows) => rows.map((row, index) => index === enemyIndex ? { ...row, row: Number(e.target.value) || 1 } : row))}
-                                    />
-                                  </label>
-                                  <label className="flex flex-col gap-1">
-                                    <span className="admin-label">Col</span>
-                                    <input
-                                      type="number"
-                                      min={1}
-                                      className="admin-input"
-                                      value={enemy.col}
-                                      onChange={(e) => updateBoardEnemyRows(levelIndex, (rows) => rows.map((row, index) => index === enemyIndex ? { ...row, col: Number(e.target.value) || 1 } : row))}
-                                    />
-                                  </label>
-                                  <label className="flex flex-col gap-1">
-                                    <span className="admin-label">Move</span>
-                                    <select
-                                      className="admin-input"
-                                      value={enemy.movement}
-                                      onChange={(e) => updateBoardEnemyRows(levelIndex, (rows) => rows.map((row, index) => index === enemyIndex ? { ...row, movement: e.target.value as "horizontal" | "vertical" } : row))}
-                                    >
-                                      <option value="horizontal">Horizontal</option>
-                                      <option value="vertical">Vertical</option>
-                                    </select>
-                                  </label>
-                                  <label className="flex flex-col gap-1">
-                                    <span className="admin-label">Min</span>
-                                    <input
-                                      type="number"
-                                      min={1}
-                                      className="admin-input"
-                                      value={enemy.min}
-                                      onChange={(e) => updateBoardEnemyRows(levelIndex, (rows) => rows.map((row, index) => index === enemyIndex ? { ...row, min: Number(e.target.value) || 1 } : row))}
-                                    />
-                                  </label>
-                                  <label className="flex flex-col gap-1">
-                                    <span className="admin-label">Max</span>
-                                    <input
-                                      type="number"
-                                      min={1}
-                                      className="admin-input"
-                                      value={enemy.max}
-                                      onChange={(e) => updateBoardEnemyRows(levelIndex, (rows) => rows.map((row, index) => index === enemyIndex ? { ...row, max: Number(e.target.value) || 1 } : row))}
-                                    />
-                                  </label>
-                                  <label className="flex flex-col gap-1">
-                                    <span className="admin-label">Speed</span>
-                                    <input
-                                      type="number"
-                                      min={1}
-                                      className="admin-input"
-                                      value={enemy.speed}
-                                      onChange={(e) => updateBoardEnemyRows(levelIndex, (rows) => rows.map((row, index) => index === enemyIndex ? { ...row, speed: Number(e.target.value) || 1 } : row))}
-                                    />
-                                  </label>
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={() => updateBoardEnemyRows(levelIndex, (rows) => rows.filter((_, index) => index !== enemyIndex))}
-                                  >
-                                    Remove
-                                  </Button>
-                                </div>
-                              ))}
-                            </div>
-                          ) : (
-                            <p className="text-sm text-ink-muted">No enemies yet. Add a patrol to simulate moving threats.</p>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  ))
-                : null}
-
-              {coreForm.gameType === "CUSTOM"
-                ? customLevels.map((level, levelIndex) => (
-                    <div key={levelIndex} className="border border-gray-100 rounded-xl p-4 space-y-3 bg-gray-50/50">
-                      <h5 className="text-xs font-bold uppercase tracking-widest text-ink-faint">Level {levelIndex + 1}</h5>
-                      <div className="grid grid-cols-1 gap-3">
-                        <label className="flex flex-col gap-1.5">
-                          <span className="admin-label">Level Name</span>
-                          <input className="admin-input" value={level.levelName}
-                            onChange={(e) => setCustomLevels((prev) => assignLevelNumbers(prev.map((item, index) => index === levelIndex ? { ...item, levelName: e.target.value } : item)))} />
-                        </label>
-                        <label className="flex flex-col gap-1.5">
-                          <span className="admin-label">Objective</span>
-                          <input className="admin-input" value={level.objective}
-                            onChange={(e) => setCustomLevels((prev) => assignLevelNumbers(prev.map((item, index) => index === levelIndex ? { ...item, objective: e.target.value } : item)))} />
-                        </label>
-                        <label className="flex flex-col gap-1.5">
-                          <span className="admin-label">Instruction</span>
-                          <textarea className="admin-input" value={level.instruction}
-                            onChange={(e) => setCustomLevels((prev) => assignLevelNumbers(prev.map((item, index) => index === levelIndex ? { ...item, instruction: e.target.value } : item)))} />
-                        </label>
-                        <label className="flex flex-col gap-1.5">
-                          <span className="admin-label">Success Message</span>
-                          <input className="admin-input" value={level.successText}
-                            onChange={(e) => setCustomLevels((prev) => assignLevelNumbers(prev.map((item, index) => index === levelIndex ? { ...item, successText: e.target.value } : item)))} />
-                        </label>
-                        <label className="flex flex-col gap-1.5">
-                          <span className="admin-label">Checkpoints (one per line)</span>
-                          <textarea className="admin-input" value={level.checkpointsText}
-                            onChange={(e) => setCustomLevels((prev) => assignLevelNumbers(prev.map((item, index) => index === levelIndex ? { ...item, checkpointsText: e.target.value } : item)))} />
-                        </label>
-                      </div>
-                    </div>
-                  ))
-                : null}
-            </div>
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-card p-6 space-y-4">
+            <div className="flex items-center justify-between gap-3 flex-wrap"><div><p className="eyebrow mb-1">Levels</p><h3 className="font-display font-semibold text-ink">Author progression visually</h3></div><div className="flex gap-2 flex-wrap items-center"><Button variant="secondary" size="sm" onClick={addLevel}>Add Level</Button><Button variant="secondary" size="sm" onClick={removeLastLevel} disabled={activeLevelCount <= 1}>Remove Last</Button><input type="number" min={1} max={activeLevelCount} className="admin-input w-24" value={levelRemovalNumber} onChange={(event) => setLevelRemovalNumber(Math.max(1, Math.min(activeLevelCount, Number(event.target.value) || 1)))} /><Button variant="secondary" size="sm" onClick={() => removeLevelAt(levelRemovalNumber - 1)} disabled={activeLevelCount <= 1}>Remove Level #</Button></div></div>
+            {coreForm.gameType === "MCQ" ? mcqLevels.map((level, levelIndex) => <div key={levelIndex} className="border border-gray-100 rounded-xl p-4 bg-gray-50/50 grid grid-cols-1 sm:grid-cols-2 gap-3"><label className="flex flex-col gap-1.5 sm:col-span-2"><span className="admin-label">Question</span><input className="admin-input" value={level.question} onChange={(event) => setMcqLevels((prev) => assignLevelNumbers(prev.map((entry, index) => index === levelIndex ? { ...entry, question: event.target.value } : entry)))} /></label><label className="flex flex-col gap-1.5"><span className="admin-label">Option A</span><input className="admin-input" value={level.optionA} onChange={(event) => setMcqLevels((prev) => assignLevelNumbers(prev.map((entry, index) => index === levelIndex ? { ...entry, optionA: event.target.value } : entry)))} /></label><label className="flex flex-col gap-1.5"><span className="admin-label">Option B</span><input className="admin-input" value={level.optionB} onChange={(event) => setMcqLevels((prev) => assignLevelNumbers(prev.map((entry, index) => index === levelIndex ? { ...entry, optionB: event.target.value } : entry)))} /></label><label className="flex flex-col gap-1.5"><span className="admin-label">Option C</span><input className="admin-input" value={level.optionC} onChange={(event) => setMcqLevels((prev) => assignLevelNumbers(prev.map((entry, index) => index === levelIndex ? { ...entry, optionC: event.target.value } : entry)))} /></label><label className="flex flex-col gap-1.5"><span className="admin-label">Option D</span><input className="admin-input" value={level.optionD} onChange={(event) => setMcqLevels((prev) => assignLevelNumbers(prev.map((entry, index) => index === levelIndex ? { ...entry, optionD: event.target.value } : entry)))} /></label></div>) : null}
+            {coreForm.gameType === "BOARD" ? boardLevels.map((level, levelIndex) => <div key={levelIndex} className="border border-gray-100 rounded-xl p-4 bg-gray-50/50 space-y-4"><div className="grid grid-cols-2 gap-3"><label className="flex flex-col gap-1.5"><span className="admin-label">Rows</span><input type="number" min={3} className="admin-input" value={level.rows} onChange={(event) => setBoardLevels((prev) => assignLevelNumbers(prev.map((entry, index) => index === levelIndex ? { ...entry, rows: Math.max(3, Number(event.target.value) || 3) } : entry)))} /></label><label className="flex flex-col gap-1.5"><span className="admin-label">Cols</span><input type="number" min={3} className="admin-input" value={level.cols} onChange={(event) => setBoardLevels((prev) => assignLevelNumbers(prev.map((entry, index) => index === levelIndex ? { ...entry, cols: Math.max(3, Number(event.target.value) || 3) } : entry)))} /></label></div><BoardPainter rows={level.rows} cols={level.cols} blockagesText={level.blockagesText} tasksText={level.tasksText} checkpointsText={level.checkpointsText} onChange={(next) => setBoardLevels((prev) => assignLevelNumbers(prev.map((entry, index) => index === levelIndex ? { ...entry, ...next } : entry)))} /><label className="flex flex-col gap-1.5"><span className="admin-label">Enemy Patrols</span><textarea className="admin-input" value={level.enemyPatrolsText} onChange={(event) => setBoardLevels((prev) => assignLevelNumbers(prev.map((entry, index) => index === levelIndex ? { ...entry, enemyPatrolsText: event.target.value } : entry)))} /></label></div>) : null}
+            {coreForm.gameType === "PLATFORMER" ? customLevels.map((level, levelIndex) => <div key={levelIndex} className="border border-gray-100 rounded-xl p-4 bg-gray-50/50 space-y-4"><div className="grid grid-cols-1 sm:grid-cols-2 gap-3"><label className="flex flex-col gap-1.5"><span className="admin-label">Level Name</span><input className="admin-input" value={level.levelName} onChange={(event) => setCustomLevels((prev) => assignLevelNumbers(prev.map((entry, index) => index === levelIndex ? { ...entry, levelName: event.target.value } : entry)))} /></label><label className="flex flex-col gap-1.5"><span className="admin-label">Objective</span><input className="admin-input" value={level.objective} onChange={(event) => setCustomLevels((prev) => assignLevelNumbers(prev.map((entry, index) => index === levelIndex ? { ...entry, objective: event.target.value } : entry)))} /></label><label className="flex flex-col gap-1.5 sm:col-span-2"><span className="admin-label">Instruction</span><textarea className="admin-input" value={level.instruction} onChange={(event) => setCustomLevels((prev) => assignLevelNumbers(prev.map((entry, index) => index === levelIndex ? { ...entry, instruction: event.target.value } : entry)))} /></label></div><BoardPainter rows={level.boardRows} cols={level.boardCols} blockagesText={level.boardBlockagesText} tasksText={level.boardTasksText} checkpointsText={level.boardCheckpointsText} onChange={(next) => setCustomLevels((prev) => assignLevelNumbers(prev.map((entry, index) => index === levelIndex ? { ...entry, boardBlockagesText: next.blockagesText, boardTasksText: next.tasksText, boardCheckpointsText: next.checkpointsText } : entry)))} /><label className="flex flex-col gap-1.5"><span className="admin-label">Enemy Patrols</span><textarea className="admin-input" value={level.enemyPatrolsText} onChange={(event) => setCustomLevels((prev) => assignLevelNumbers(prev.map((entry, index) => index === levelIndex ? { ...entry, enemyPatrolsText: event.target.value } : entry)))} /></label></div>) : null}
+            {coreForm.gameType === "MATH" ? customLevels.map((level, levelIndex) => <div key={levelIndex} className="border border-gray-100 rounded-xl p-4 bg-gray-50/50 space-y-4"><div className="grid grid-cols-1 sm:grid-cols-2 gap-3"><label className="flex flex-col gap-1.5"><span className="admin-label">Level Name</span><input className="admin-input" value={level.levelName} onChange={(event) => setCustomLevels((prev) => assignLevelNumbers(prev.map((entry, index) => index === levelIndex ? { ...entry, levelName: event.target.value } : entry)))} /></label><label className="flex flex-col gap-1.5"><span className="admin-label">Passing Score</span><input type="number" min={1} max={100} className="admin-input" value={level.passingScore} onChange={(event) => setCustomLevels((prev) => assignLevelNumbers(prev.map((entry, index) => index === levelIndex ? { ...entry, passingScore: Math.max(1, Math.min(100, Number(event.target.value) || 70)) } : entry)))} /></label><label className="flex flex-col gap-1.5 sm:col-span-2"><span className="admin-label">Objective</span><input className="admin-input" value={level.objective} onChange={(event) => setCustomLevels((prev) => assignLevelNumbers(prev.map((entry, index) => index === levelIndex ? { ...entry, objective: event.target.value } : entry)))} /></label><label className="flex flex-col gap-1.5 sm:col-span-2"><span className="admin-label">Prompts</span><textarea className="admin-input" value={level.promptsText} onChange={(event) => setCustomLevels((prev) => assignLevelNumbers(prev.map((entry, index) => index === levelIndex ? { ...entry, promptsText: event.target.value } : entry)))} /></label></div></div>) : null}
+            {coreForm.gameType === "WORD" ? wordLevels.map((level, levelIndex) => <div key={levelIndex} className="border border-gray-100 rounded-xl p-4 bg-gray-50/50 grid gap-3"><input className="admin-input" value={level.availableLettersText} onChange={(event) => setWordLevels((prev) => assignLevelNumbers(prev.map((entry, index) => index === levelIndex ? { ...entry, availableLettersText: event.target.value } : entry)))} /><input className="admin-input" value={level.wordsText} onChange={(event) => setWordLevels((prev) => assignLevelNumbers(prev.map((entry, index) => index === levelIndex ? { ...entry, wordsText: event.target.value } : entry)))} /></div>) : null}
+            {coreForm.gameType === "GRID" ? gridLevels.map((level, levelIndex) => <div key={levelIndex} className="border border-gray-100 rounded-xl p-4 bg-gray-50/50 grid grid-cols-2 gap-3"><input type="number" min={2} max={9} className="admin-input" value={level.gridSize} onChange={(event) => setGridLevels((prev) => assignLevelNumbers(prev.map((entry, index) => index === levelIndex ? { ...entry, gridSize: Math.max(2, Number(event.target.value) || 2) } : entry)))} /><input type="number" min={1} className="admin-input" value={level.cluesCount} onChange={(event) => setGridLevels((prev) => assignLevelNumbers(prev.map((entry, index) => index === levelIndex ? { ...entry, cluesCount: Math.max(1, Number(event.target.value) || 1) } : entry)))} /></div>) : null}
+            {coreForm.gameType === "DRAG_DROP" ? dragDropLevels.map((level, levelIndex) => <div key={levelIndex} className="border border-gray-100 rounded-xl p-4 bg-gray-50/50 grid gap-3"><input className="admin-input" value={level.itemsText} onChange={(event) => setDragDropLevels((prev) => assignLevelNumbers(prev.map((entry, index) => index === levelIndex ? { ...entry, itemsText: event.target.value } : entry)))} /><input className="admin-input" value={level.targetsText} onChange={(event) => setDragDropLevels((prev) => assignLevelNumbers(prev.map((entry, index) => index === levelIndex ? { ...entry, targetsText: event.target.value } : entry)))} /></div>) : null}
           </div>
-
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-card p-6">
-              <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
-                <div>
-                  <p className="eyebrow mb-1">Adaptive Simulation</p>
-                  <h3 className="font-display font-bold text-ink">Session Preview</h3>
-                </div>
-                <select
-                  className="admin-input max-w-[180px]"
-                  value={previewBand}
-                  onChange={(e) => setPreviewBand(e.target.value as AdaptiveBand)}
-                >
-                  <option value="support">Support</option>
-                  <option value="standard">Balanced</option>
-                  <option value="challenge">Challenge</option>
-                </select>
-              </div>
-              <div className="grid grid-cols-2 gap-3 mb-4">
-                <div className="metric-block bg-gray-50">
-                  <span>Timer</span>
-                  <strong>{simulatedAdaptivePreview.timer}s</strong>
-                </div>
-                <div className="metric-block bg-gray-50">
-                  <span>Multiplier</span>
-                  <strong>{simulatedAdaptivePreview.multiplier}x</strong>
-                </div>
-              </div>
-              <p className="text-sm text-ink-muted">{simulatedAdaptivePreview.note}</p>
-              <div className="mt-4 flex flex-wrap gap-2">
-                <span className="tag-chip">Timer delta {simulatedAdaptivePreview.timerDelta >= 0 ? "+" : ""}{simulatedAdaptivePreview.timerDelta}s</span>
-                <span className="tag-chip">Multiplier delta {simulatedAdaptivePreview.multiplierDelta >= 0 ? "+" : ""}{simulatedAdaptivePreview.multiplierDelta.toFixed(2)}x</span>
-                <span className="tag-chip">{coreForm.adaptiveEnabled ? "Adaptive runtime on" : "Adaptive runtime off"}</span>
-              </div>
-            </div>
-
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-card p-6">
-              <p className="eyebrow mb-1">Gameplay Preview</p>
-              <h3 className="font-display font-bold text-ink mb-4">Level 1 Snapshot</h3>
-              {simulatedPreviewLevel ? (
-                <div className="space-y-4">
-                  {"questions" in simulatedPreviewLevel ? (
-                    <div className="space-y-2">
-                      <p className="text-sm font-semibold text-ink">{String((simulatedPreviewLevel.questions as Array<{ question: string }>)?.[0]?.question ?? "Question preview")}</p>
-                      <div className="space-y-2">
-                        {((simulatedPreviewLevel.questions as Array<{ options: Array<{ id: string; text: string }> }>)?.[0]?.options ?? []).map((option) => (
-                          <div key={option.id} className="option-card">
-                            <span>{option.id}</span>
-                            <span>{option.text}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ) : null}
-                  {"validWords" in simulatedPreviewLevel ? (
-                    <div className="space-y-3">
-                      <div className="letter-rack">
-                        {((simulatedPreviewLevel.availableLetters as string[]) ?? []).map((letter, index) => (
-                          <span key={`${letter}-${index}`} className="letter-tile">{letter}</span>
-                        ))}
-                      </div>
-                      <div className="word-bank">
-                        {((simulatedPreviewLevel.validWords as Array<{ word: string }>) ?? []).slice(0, 4).map((word) => (
-                          <span key={word.word} className="word-chip">{word.word}</span>
-                        ))}
-                      </div>
-                    </div>
-                  ) : null}
-                  {"solution" in simulatedPreviewLevel ? (
-                    <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${Number(simulatedPreviewLevel.gridSize) || 1}, minmax(0, 1fr))` }}>
-                      {Array.from({ length: Number(simulatedPreviewLevel.gridSize) || 0 }, (_, rowIndex) =>
-                        Array.from({ length: Number(simulatedPreviewLevel.gridSize) || 0 }, (_, colIndex) => {
-                          const clue = ((simulatedPreviewLevel.preFilledCells as Array<{ row: number; col: number; value: number }>) ?? [])
-                            .find((cell) => cell.row === rowIndex && cell.col === colIndex);
-                          return (
-                            <div key={`${rowIndex}-${colIndex}`} className={`grid-cell ${clue ? "is-locked" : ""}`.trim()}>
-                              <span className="grid-cell-value">{clue?.value ?? ""}</span>
-                            </div>
-                          );
-                        }),
-                      )}
-                    </div>
-                  ) : null}
-                  {"items" in simulatedPreviewLevel ? (
-                    <div className="dragdrop-layout">
-                      <div className="dragdrop-column">
-                        <h4>Items</h4>
-                        <div className="dragdrop-stack">
-                          {((simulatedPreviewLevel.items as Array<{ id: string; label: string }>) ?? []).map((item) => (
-                            <div key={item.id} className="drag-card">
-                              <span>{item.label}</span>
-                              <span className="tag-chip">item</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                      <div className="dragdrop-column">
-                        <h4>Targets</h4>
-                        <div className="dragdrop-stack">
-                          {((simulatedPreviewLevel.targets as Array<{ id: string; label: string }>) ?? []).map((target) => (
-                            <div key={target.id} className="drop-zone">
-                              <div className="drop-zone-head">
-                                <span>{target.label}</span>
-                                <span className="tag-chip">{previewBand === "challenge" && target.id.startsWith("decoy-") ? "decoy" : "target"}</span>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  ) : null}
-                  {"board" in simulatedPreviewLevel ? (
-                    <div className="space-y-3">
-                      <div className="board-grid board-grid-smartboard" style={{ gridTemplateColumns: `repeat(${String((simulatedPreviewLevel.board as string[])[0] ?? "").length || 1}, minmax(0, 1fr))` }}>
-                        {((simulatedPreviewLevel.board as string[]) ?? []).flatMap((row, rowIndex) =>
-                          row.split("").map((tile, colIndex) => {
-                            const enemyHere = (((simulatedPreviewLevel.enemies as Array<{ row: number; col: number }>) ?? []).some((enemy) => enemy.row === rowIndex && enemy.col === colIndex));
-                            return (
-                              <div key={`${rowIndex}-${colIndex}`} className={`board-tile ${tile === "#" ? "is-wall" : ""} ${tile === "G" ? "is-goal" : ""} ${enemyHere ? "is-enemy" : ""}`.trim()}>
-                                <span>{enemyHere ? "E" : tile === "." ? "" : tile}</span>
-                              </div>
-                            );
-                          }),
-                        )}
-                      </div>
-                      <p className="text-sm text-ink-muted">{(((simulatedPreviewLevel.enemies as Array<unknown>) ?? []).length)} patrol enemy(s) configured.</p>
-                    </div>
-                  ) : null}
-                  {"objective" in simulatedPreviewLevel ? (
-                    <div className="space-y-3 rounded-xl border border-gray-100 bg-gray-50 p-4">
-                      <p className="text-sm font-semibold text-ink">{String(simulatedPreviewLevel.objective ?? "")}</p>
-                      <p className="text-sm text-ink-muted">{String(simulatedPreviewLevel.instruction ?? "")}</p>
-                      <div className="space-y-2">
-                        {((simulatedPreviewLevel.checkpoints as string[]) ?? []).map((checkpoint) => (
-                          <div key={checkpoint} className="mapping-row">
-                            <span>{checkpoint}</span>
-                            <span className="tag-chip">checkpoint</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ) : null}
-                </div>
-              ) : (
-                <p className="text-sm text-ink-muted">Create a level to see a live gameplay preview.</p>
-              )}
-            </div>
-          </div>
-
-          {/* Config preview */}
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-card p-6">
-            <p className="eyebrow mb-3">Auto-generated Config Preview</p>
-            <pre className="text-xs font-mono bg-gray-50 border border-gray-200 rounded-xl p-4 overflow-auto max-h-72 text-ink-muted">
-              {JSON.stringify(generatedConfig, null, 2)}
-            </pre>
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-card p-6"><p className="eyebrow mb-1">Preview</p><h3 className="font-display font-semibold text-ink mb-4">Level 1 Snapshot</h3>{"board" in (previewLevel ?? {}) ? <div className="space-y-3"><div className="board-grid board-grid-smartboard" style={{ gridTemplateColumns: `repeat(${String((previewLevel?.board as string[])[0] ?? "").length || 1}, minmax(0, 1fr))` }}>{((previewLevel?.board as string[]) ?? []).flatMap((row, rowIndex) => row.split("").map((tile, colIndex) => <div key={`${rowIndex}-${colIndex}`} className={`board-tile ${tile === "#" ? "is-wall" : ""} ${tile === "G" ? "is-goal" : ""}`.trim()}><span>{tile === "." ? "" : tile}</span></div>))}</div></div> : null}{"prompts" in (previewLevel ?? {}) ? <div className="space-y-2">{((previewLevel?.prompts as Array<{ prompt: string }>) ?? []).slice(0, 2).map((prompt) => <div key={prompt.prompt} className="option-card"><span>{prompt.prompt}</span></div>)}</div> : null}{"checkpoints" in (previewLevel ?? {}) && !("prompts" in (previewLevel ?? {})) ? <div className="space-y-2">{(((previewLevel?.checkpoints as Array<string | { id?: string; label?: string; row?: number; col?: number }>) ?? [])).map((checkpoint, index) => { const label = typeof checkpoint === "string" ? checkpoint : checkpoint.label ?? `Checkpoint ${index + 1}`; const key = typeof checkpoint === "string" ? checkpoint : checkpoint.id ?? `${checkpoint.row ?? 0}-${checkpoint.col ?? 0}-${index}`; return <div key={key} className="mapping-row"><span>{label}</span><span className="tag-chip">checkpoint</span></div>; })}</div> : null}</div>
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-card p-6"><p className="eyebrow mb-1">Generated JSON</p><pre className="text-xs font-mono bg-gray-50 border border-gray-200 rounded-xl p-4 overflow-auto max-h-96 text-ink-muted">{JSON.stringify(generatedConfig, null, 2)}</pre></div>
           </div>
         </div>
-
-        {/* â”€â”€ Right: Game list + leaderboard â”€â”€ */}
         <div className="space-y-6">
-          {/* Game table */}
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-card p-6">
-            <h3 className="font-display font-bold text-ink mb-4">ðŸ“‹ All Games</h3>
-            <div className="overflow-x-auto">
-              <table className="admin-table">
-                <thead>
-                  <tr>
-                    <th>Game</th>
-                    <th>Type</th>
-                    <th>Submissions</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(overview?.games ?? []).map((game) => (
-                    <tr key={game.gameId} className={game.gameId === selectedGameId ? "is-selected" : ""}>
-                      <td>
-                        <strong className="text-sm">{game.title}</strong>
-                        <div className="table-subtext">{game.gameId}</div>
-                      </td>
-                      <td>
-                        <span className="game-type-badge">{game.gameType}</span>
-                      </td>
-                      <td className="text-sm">{game.submissions}</td>
-                      <td>
-                        <Button variant="ghost" size="sm" onClick={() => void loadGameIntoBuilder(game.gameId)}>
-                          Edit
-                        </Button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {(overview?.games ?? []).length === 0 && (
-                <div className="empty-state py-8">
-                  <p className="text-sm">No games yet. Create one!</p>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Leaderboard preview */}
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-card p-6">
-            <p className="eyebrow mb-1">Leaderboard Preview</p>
-            <h3 className="font-display font-semibold text-ink mb-4">
-              {selectedGame?.title ?? "Select a game"}
-            </h3>
-            {selectedGame?.leaderboardPreview.length ? (
-              <ol className="space-y-2">
-                {selectedGame.leaderboardPreview.map((entry) => (
-                  <li key={`${entry.userId}-${entry.rank}`} className="flex items-center justify-between px-3 py-2 rounded-xl border border-gray-100 text-sm">
-                    <span className="font-medium text-ink">
-                      #{entry.rank} {entry.displayName}
-                    </span>
-                    <strong className="text-teal-700 tabular-nums">{entry.score}</strong>
-                  </li>
-                ))}
-              </ol>
-            ) : (
-              <p className="text-sm text-ink-muted">No leaderboard entries for this game.</p>
-            )}
-          </div>
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-card p-6"><h3 className="font-display font-bold text-ink mb-4">All Games</h3><div className="overflow-x-auto"><table className="admin-table"><thead><tr><th>Game</th><th>Type</th><th>Submissions</th><th></th></tr></thead><tbody>{(overview?.games ?? []).map((game) => <tr key={game.gameId} className={game.gameId === selectedGameId ? "is-selected" : ""}><td><strong className="text-sm">{game.title}</strong><div className="table-subtext">{game.gameId}</div></td><td><span className="game-type-badge">{game.gameType}</span></td><td className="text-sm">{game.submissions}</td><td><Button variant="ghost" size="sm" onClick={() => void loadGameIntoBuilder(game.gameId)}>Edit</Button></td></tr>)}</tbody></table></div></div>
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-card p-6"><p className="eyebrow mb-1">Learning Outcomes</p><div className="space-y-2">{LEARNING_OUTCOMES.map((outcome) => <div key={outcome} className={`mapping-row ${coreForm.targetSkill === outcome ? "border-teal-200 bg-teal-50" : ""}`.trim()}><span>{titleCase(outcome)}</span><span className="tag-chip">{coreForm.targetSkill === outcome ? "active" : "available"}</span></div>)}</div></div>
         </div>
       </div>
     </div>

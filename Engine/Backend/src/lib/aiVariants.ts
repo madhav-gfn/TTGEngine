@@ -7,6 +7,7 @@ import {
   type GameConfigV1,
   type GameConfigV2,
 } from "./gameSchema.js";
+import { extractJsonPayload, requestJsonFromProvider } from "./aiTextGeneration.js";
 import { runtimeConfig } from "./runtimeConfig.js";
 
 export interface VariantRequest {
@@ -62,9 +63,10 @@ function sortByBand<T extends { difficulty: "easy" | "medium" | "hard" }>(
 function getEmptyBoardCells(level: BoardLevelConfig): Array<{ row: number; col: number }> {
   const cells: Array<{ row: number; col: number }> = [];
   const occupiedTasks = new Set((level.tasks ?? []).map((task) => `${task.row}:${task.col}`));
+  const occupiedCheckpoints = new Set((level.checkpoints ?? []).map((checkpoint) => `${checkpoint.row}:${checkpoint.col}`));
   level.board.forEach((row, rowIndex) => {
     row.split("").forEach((tile, colIndex) => {
-      if (tile === "." && !occupiedTasks.has(`${rowIndex}:${colIndex}`)) {
+      if (tile === "." && !occupiedTasks.has(`${rowIndex}:${colIndex}`) && !occupiedCheckpoints.has(`${rowIndex}:${colIndex}`)) {
         cells.push({ row: rowIndex, col: colIndex });
       }
     });
@@ -181,6 +183,7 @@ function applyLocalVariant(config: AnyGameConfig, request: VariantRequest): AnyG
       const nextLevel = cloneConfig(level);
       const emptyCells = shuffle(getEmptyBoardCells(nextLevel), random);
       const tasks = [...(nextLevel.tasks ?? [])];
+      const checkpoints = [...(nextLevel.checkpoints ?? [])];
 
       if (band === "challenge" && emptyCells[0]) {
         tasks.push({
@@ -195,6 +198,20 @@ function applyLocalVariant(config: AnyGameConfig, request: VariantRequest): AnyG
         tasks.pop();
       }
 
+      if (band === "challenge" && emptyCells[1]) {
+        checkpoints.push({
+          id: `generated-checkpoint-${checkpoints.length + 1}`,
+          row: emptyCells[1].row,
+          col: emptyCells[1].col,
+          label: `Checkpoint ${checkpoints.length + 1}`,
+          required: true,
+        });
+      }
+
+      if (band === "support" && checkpoints.length > 1) {
+        checkpoints.pop();
+      }
+
       const nextEnemies = [...(nextLevel.enemies ?? [])];
       if (band === "challenge") {
         const generatedEnemy = nextEnemies.length === 0 ? findHorizontalEnemyLane(nextLevel) : null;
@@ -206,102 +223,149 @@ function applyLocalVariant(config: AnyGameConfig, request: VariantRequest): AnyG
       return {
         ...nextLevel,
         tasks,
+        checkpoints,
         enemies: band === "support" && nextEnemies.length > 1 ? nextEnemies.slice(0, nextEnemies.length - 1) : nextEnemies,
       };
     });
   }
 
-  if (nextConfig.gameType === "CUSTOM") {
-    nextConfig.levels = nextConfig.levels.map((level) => ({
-      ...level,
-      instruction:
-        band === "support"
-          ? `${level.instruction} Break the task into smaller wins.`
-          : band === "challenge"
-            ? `${level.instruction} Complete it under challenge conditions.`
-            : level.instruction,
-      checkpoints:
-        band === "challenge"
-          ? [...(level.checkpoints ?? [level.objective]), "Perform a final self-check"]
-          : level.checkpoints ?? [level.objective],
-    }));
+  if (nextConfig.gameType === "MATH") {
+    nextConfig.levels = nextConfig.levels.map((level) => {
+      const prompts = [...(level.prompts ?? [])];
+      const nextPrompts = band === "support"
+        ? prompts.slice(0, Math.max(1, prompts.length - 1))
+        : band === "challenge"
+          ? [
+            ...prompts,
+            {
+              id: `bonus-${level.levelNumber}`,
+              prompt: `Bonus: ${(level.levelNumber + 3) * 4} - ${level.levelNumber + 1} = ?`,
+              answer: String((level.levelNumber + 3) * 4 - (level.levelNumber + 1)),
+              options: [
+                { id: "A", text: String((level.levelNumber + 3) * 4 - (level.levelNumber + 1)) },
+                { id: "B", text: String((level.levelNumber + 3) * 4 - level.levelNumber) },
+                { id: "C", text: String((level.levelNumber + 3) * 4 - (level.levelNumber + 2)) },
+              ],
+            },
+          ]
+          : prompts;
+
+      return {
+        ...level,
+        prompts: nextPrompts,
+        instruction:
+          band === "support"
+            ? `${level.instruction} Use the easier prompts to build momentum.`
+            : band === "challenge"
+              ? `${level.instruction} A bonus prompt has been added.`
+              : level.instruction,
+      };
+    });
+  }
+
+  if (nextConfig.gameType === "PLATFORMER") {
+    nextConfig.levels = nextConfig.levels.map((level) => {
+      if (!level.board?.length) {
+        return level;
+      }
+
+      const emptyCells = shuffle(getEmptyBoardCells({
+        levelNumber: level.levelNumber,
+        board: level.board,
+        tasks: level.boardTasks,
+        checkpoints: level.boardCheckpoints,
+        enemies: level.enemies,
+      }), random);
+
+      return {
+        ...level,
+        boardTasks: band === "support"
+          ? (level.boardTasks ?? []).slice(0, Math.max(1, (level.boardTasks ?? []).length - 1))
+          : band === "challenge" && emptyCells[0]
+            ? [
+              ...(level.boardTasks ?? []),
+              {
+                id: `bonus-orb-${level.levelNumber}`,
+                row: emptyCells[0].row,
+                col: emptyCells[0].col,
+                label: "Bonus Orb",
+              },
+            ]
+            : level.boardTasks,
+        boardCheckpoints: band === "challenge" && emptyCells[1]
+          ? [
+            ...(level.boardCheckpoints ?? []),
+            {
+              id: `checkpoint-${level.levelNumber}-${emptyCells[1].row}-${emptyCells[1].col}`,
+              row: emptyCells[1].row,
+              col: emptyCells[1].col,
+              label: "Sky Gate",
+              required: true,
+            },
+          ]
+          : level.boardCheckpoints,
+        instruction:
+          band === "support"
+            ? `${level.instruction} One collectible has been removed to simplify the route.`
+            : band === "challenge"
+              ? `${level.instruction} A bonus orb and extra checkpoint have appeared.`
+              : level.instruction,
+      };
+    });
   }
 
   return parseGameConfig(nextConfig);
-}
-
-function extractJsonPayload(text: string): string | null {
-  const trimmed = text.trim();
-  if (!trimmed) {
-    return null;
-  }
-
-  if (trimmed.startsWith("{")) {
-    return trimmed;
-  }
-
-  const fenced = trimmed.match(/```json\s*([\s\S]+?)```/i);
-  if (fenced?.[1]) {
-    return fenced[1].trim();
-  }
-
-  const firstBrace = trimmed.indexOf("{");
-  const lastBrace = trimmed.lastIndexOf("}");
-  return firstBrace >= 0 && lastBrace > firstBrace ? trimmed.slice(firstBrace, lastBrace + 1) : null;
 }
 
 async function attemptOpenAiCompatibleVariant(
   config: AnyGameConfig,
   request: VariantRequest,
 ): Promise<AnyGameConfig | null> {
-  const endpoint = config.aiConfig?.endpoint || runtimeConfig.aiBaseUrl;
-  const apiKey = runtimeConfig.aiApiKey;
-  const model = config.aiConfig?.model || runtimeConfig.aiModel;
-
-  if (!endpoint || !apiKey || !model) {
-    return null;
-  }
-
-  const prompt = [
-    "Generate a valid TaPTaP game config variant as JSON only.",
-    `Target band: ${request.band ?? "standard"}.`,
-    config.aiConfig?.prompt ?? "Keep the structure compatible with the original config and preserve game identity.",
-    `Original config:\n${JSON.stringify(config, null, 2)}`,
-  ].join("\n\n");
-
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model,
-      messages: [
-        {
-          role: "system",
-          content: "Return only valid JSON for a TaPTaP game config variant.",
-        },
-        {
-          role: "user",
-          content: prompt,
-        },
-      ],
-      temperature: 0.7,
-    }),
+  const content = await requestJsonFromProvider({
+    provider: "openai-compatible",
+    prompt: [
+      "Generate a valid TaPTaP game config variant as JSON only.",
+      `Target band: ${request.band ?? "standard"}.`,
+      config.aiConfig?.prompt ?? "Keep the structure compatible with the original config and preserve game identity.",
+      `Original config:\n${JSON.stringify(config, null, 2)}`,
+    ].join("\n\n"),
+    model: config.aiConfig?.model || runtimeConfig.aiModel,
+    endpoint: config.aiConfig?.endpoint || runtimeConfig.aiBaseUrl,
   });
 
-  if (!response.ok) {
-    throw new Error(`AI variant request failed (${response.status}).`);
+  if (!content) {
+    return null;
   }
-
-  const payload = await response.json() as {
-    choices?: Array<{ message?: { content?: string } }>;
-  };
-  const content = payload.choices?.[0]?.message?.content;
   const jsonPayload = content ? extractJsonPayload(content) : null;
   if (!jsonPayload) {
     throw new Error("AI variant response did not contain JSON.");
+  }
+
+  return parseGameConfig(JSON.parse(jsonPayload));
+}
+
+async function attemptGoogleGenAiVariant(
+  config: AnyGameConfig,
+  request: VariantRequest,
+): Promise<AnyGameConfig | null> {
+  const content = await requestJsonFromProvider({
+    provider: "google-genai",
+    prompt: [
+      "Generate a valid TaPTaP game config variant as JSON only.",
+      `Target band: ${request.band ?? "standard"}.`,
+      config.aiConfig?.prompt ?? "Keep the structure compatible with the original config and preserve game identity.",
+      `Original config:\n${JSON.stringify(config, null, 2)}`,
+    ].join("\n\n"),
+    model: config.aiConfig?.model || runtimeConfig.googleGenAiModel,
+  });
+
+  if (!content) {
+    return null;
+  }
+
+  const jsonPayload = extractJsonPayload(content);
+  if (!jsonPayload) {
+    throw new Error("Google GenAI variant response did not contain JSON.");
   }
 
   return parseGameConfig(JSON.parse(jsonPayload));
@@ -312,11 +376,13 @@ export async function generateVariantForConfig(
   request: VariantRequest = {},
 ): Promise<AnyGameConfig> {
   const aiEnabled = config.aiConfig?.enabled;
-  const prefersExternal = aiEnabled && config.aiConfig?.provider === "openai-compatible";
+  const prefersExternal = aiEnabled && config.aiConfig?.provider !== "local-template";
 
   if (prefersExternal) {
     try {
-      const generated = await attemptOpenAiCompatibleVariant(config, request);
+      const generated = config.aiConfig?.provider === "google-genai"
+        ? await attemptGoogleGenAiVariant(config, request)
+        : await attemptOpenAiCompatibleVariant(config, request);
       if (generated) {
         return generated;
       }

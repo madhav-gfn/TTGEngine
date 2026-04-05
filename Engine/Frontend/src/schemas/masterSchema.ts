@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const GameTypeSchema = z.enum(["GRID", "WORD", "MCQ", "DRAG_DROP", "CUSTOM"]);
+export const GameTypeSchema = z.enum(["GRID", "WORD", "MCQ", "DRAG_DROP", "BOARD", "PLATFORMER", "MATH", "CUSTOM"]);
 export const DifficultySchema = z.enum(["easy", "medium", "hard"]);
 export const TimerTypeSchema = z.enum(["countdown", "countup"]);
 export const TimeBonusFormulaSchema = z.enum(["linear", "exponential", "none"]);
@@ -151,6 +151,9 @@ export const GameConfigSchema = z
       WORD: WordLevelSchema,
       MCQ: MCQLevelSchema,
       DRAG_DROP: DragDropLevelSchema,
+      BOARD: z.any(),
+      PLATFORMER: z.any(),
+      MATH: z.any(),
       CUSTOM: z.any(),
     }[data.gameType];
 

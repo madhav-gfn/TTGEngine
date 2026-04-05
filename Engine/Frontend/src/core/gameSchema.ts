@@ -6,6 +6,8 @@ export enum GameType {
   MCQ = "MCQ",
   DRAG_DROP = "DRAG_DROP",
   BOARD = "BOARD",
+  PLATFORMER = "PLATFORMER",
+  MATH = "MATH",
   CUSTOM = "CUSTOM",
 }
 
@@ -101,7 +103,7 @@ export interface AdaptiveConfig {
 
 export interface AIConfig {
   enabled: boolean;
-  provider: "local-template" | "openai-compatible";
+  provider: "local-template" | "openai-compatible" | "google-genai";
   model?: string;
   endpoint?: string;
   prompt?: string;
@@ -199,7 +201,7 @@ export interface BoardTask {
 export interface BoardLegendEntry {
   label: string;
   walkable: boolean;
-  variant?: "empty" | "wall" | "start" | "goal" | "task";
+  variant?: "empty" | "wall" | "start" | "goal" | "task" | "checkpoint";
 }
 
 export interface BoardEnemy {
@@ -213,12 +215,46 @@ export interface BoardEnemy {
   speed?: number;
 }
 
+export interface BoardCheckpoint {
+  id: string;
+  row: number;
+  col: number;
+  label: string;
+  required?: boolean;
+}
+
 export interface BoardLevelConfig extends BaseLevelConfig {
   board: string[];
   tasks?: BoardTask[];
+  checkpoints?: BoardCheckpoint[];
   legend?: Record<string, BoardLegendEntry>;
   enemies?: BoardEnemy[];
   enemyCollisionPenalty?: number;
+}
+
+export type CustomRendererKind = "scenario" | "platformer" | "math";
+export type CustomRendererStrategy = "scenario" | "extend-board" | "extend-mcq";
+
+export interface CustomRendererConfig {
+  kind: CustomRendererKind;
+  strategy?: CustomRendererStrategy;
+  title?: string;
+  instructions?: string;
+  accentColor?: string;
+}
+
+export interface CustomPromptOption {
+  id: string;
+  text: string;
+}
+
+export interface CustomPrompt {
+  id: string;
+  prompt: string;
+  answer: string;
+  options?: CustomPromptOption[];
+  hint?: string;
+  explanation?: string;
 }
 
 export interface CustomLevelConfig extends BaseLevelConfig {
@@ -227,6 +263,14 @@ export interface CustomLevelConfig extends BaseLevelConfig {
   instruction: string;
   successText: string;
   checkpoints?: string[];
+  renderer?: CustomRendererConfig;
+  board?: string[];
+  boardTasks?: BoardTask[];
+  boardCheckpoints?: BoardCheckpoint[];
+  enemies?: BoardEnemy[];
+  prompts?: CustomPrompt[];
+  passingScore?: number;
+  boardGoalText?: string;
 }
 
 export type LevelConfig =
@@ -316,6 +360,8 @@ export type GameConfigV1 =
   | GameConfigBase<GameType.WORD, WordLevelConfig>
   | GameConfigBase<GameType.MCQ, MCQLevelConfig>
   | GameConfigBase<GameType.DRAG_DROP, DragDropLevelConfig>
+  | GameConfigBase<GameType.PLATFORMER, CustomLevelConfig>
+  | GameConfigBase<GameType.MATH, CustomLevelConfig>
   | GameConfigBase<GameType.CUSTOM, CustomLevelConfig>;
 
 export type GameConfigV2 =
@@ -324,6 +370,8 @@ export type GameConfigV2 =
   | (GameConfigBase<GameType.WORD, WordLevelConfig> & { schemaVersion: 2; interactionConfig?: InteractionConfig })
   | (GameConfigBase<GameType.MCQ, MCQLevelConfig> & { schemaVersion: 2; interactionConfig?: InteractionConfig })
   | (GameConfigBase<GameType.DRAG_DROP, DragDropLevelConfig> & { schemaVersion: 2; interactionConfig?: InteractionConfig })
+  | (GameConfigBase<GameType.PLATFORMER, CustomLevelConfig> & { schemaVersion: 2; interactionConfig?: InteractionConfig })
+  | (GameConfigBase<GameType.MATH, CustomLevelConfig> & { schemaVersion: 2; interactionConfig?: InteractionConfig })
   | (GameConfigBase<GameType.CUSTOM, CustomLevelConfig> & { schemaVersion: 2; interactionConfig?: InteractionConfig });
 
 export type AnyGameConfig = GameConfigV1 | GameConfigV2;
@@ -389,8 +437,8 @@ export const DEFAULT_INTERACTION_CONFIG: InteractionConfig = {
 };
 
 const DifficultySchema = z.enum(["easy", "medium", "hard"]);
-const V1GameTypeSchema = z.enum(["GRID", "WORD", "MCQ", "DRAG_DROP", "CUSTOM"]);
-const V2GameTypeSchema = z.enum(["GRID", "WORD", "MCQ", "DRAG_DROP", "BOARD", "CUSTOM"]);
+const V1GameTypeSchema = z.enum(["GRID", "WORD", "MCQ", "DRAG_DROP", "PLATFORMER", "MATH", "CUSTOM"]);
+const V2GameTypeSchema = z.enum(["GRID", "WORD", "MCQ", "DRAG_DROP", "BOARD", "PLATFORMER", "MATH", "CUSTOM"]);
 const TimerTypeSchema = z.enum(["countdown", "countup"]);
 const TimeBonusFormulaSchema = z.enum(["linear", "exponential", "none"]);
 
@@ -468,7 +516,7 @@ const AdaptiveConfigSchema = z
 const AIConfigSchema = z
   .object({
     enabled: z.boolean().default(false),
-    provider: z.enum(["local-template", "openai-compatible"]).default("local-template"),
+    provider: z.enum(["local-template", "openai-compatible", "google-genai"]).default("local-template"),
     model: z.string().min(1).optional(),
     endpoint: z.string().min(1).optional(),
     prompt: z.string().min(1).optional(),
@@ -576,6 +624,133 @@ const CustomLevelSchema = BaseLevelSchema.extend({
   instruction: z.string().min(1).max(500),
   successText: z.string().min(1).max(200),
   checkpoints: z.array(z.string().min(1).max(120)).max(8).optional(),
+  renderer: z.object({
+    kind: z.enum(["scenario", "platformer", "math"]),
+    strategy: z.enum(["scenario", "extend-board", "extend-mcq"]).optional(),
+    title: z.string().min(1).max(80).optional(),
+    instructions: z.string().min(1).max(240).optional(),
+    accentColor: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional(),
+  }).optional(),
+  board: z.array(z.string().min(1)).min(1).optional(),
+  boardTasks: z.array(z.object({
+    id: z.string().min(1),
+    row: z.number().int().min(0),
+    col: z.number().int().min(0),
+    label: z.string().min(1),
+  })).optional(),
+  boardCheckpoints: z.array(z.object({
+    id: z.string().min(1),
+    row: z.number().int().min(0),
+    col: z.number().int().min(0),
+    label: z.string().min(1),
+    required: z.boolean().optional(),
+  })).optional(),
+  enemies: z.array(z.object({
+    id: z.string().min(1),
+    row: z.number().int().min(0),
+    col: z.number().int().min(0),
+    movement: z.enum(["horizontal", "vertical"]),
+    min: z.number().int().min(0),
+    max: z.number().int().min(0),
+    direction: z.enum(["forward", "reverse"]).default("forward"),
+    speed: z.number().int().min(1).max(10).default(1),
+  })).optional(),
+  prompts: z.array(z.object({
+    id: z.string().min(1),
+    prompt: z.string().min(1).max(240),
+    answer: z.string().min(1).max(120),
+    options: z.array(z.object({
+      id: z.string().min(1),
+      text: z.string().min(1).max(120),
+    })).min(2).max(6).optional(),
+    hint: z.string().min(1).max(240).optional(),
+    explanation: z.string().min(1).max(240).optional(),
+  })).max(12).optional(),
+  passingScore: z.number().int().min(1).max(100).optional(),
+  boardGoalText: z.string().min(1).max(120).optional(),
+}).superRefine((level, ctx) => {
+  const board = level.board;
+  if (board?.length) {
+    const width = board[0]?.length ?? 0;
+    let startCount = 0;
+    let goalCount = 0;
+
+    board.forEach((row, rowIndex) => {
+      if (row.length !== width) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "All custom board rows must have the same width.",
+          path: ["board", rowIndex],
+        });
+      }
+
+      row.split("").forEach((tile, colIndex) => {
+        if (!["#", ".", "S", "G", "T", "C"].includes(tile)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: `Unsupported custom board tile '${tile}'. Use #, ., S, G, T, or C.`,
+            path: ["board", rowIndex, colIndex],
+          });
+        }
+
+        if (tile === "S") {
+          startCount += 1;
+        }
+        if (tile === "G") {
+          goalCount += 1;
+        }
+      });
+    });
+
+    if (startCount !== 1) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Custom platformer boards must contain exactly one start tile (S).",
+        path: ["board"],
+      });
+    }
+
+    if (goalCount !== 1) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Custom platformer boards must contain exactly one goal tile (G).",
+        path: ["board"],
+      });
+    }
+  }
+
+  level.boardTasks?.forEach((task, taskIndex) => {
+    const width = level.board?.[0]?.length ?? 0;
+    if (!level.board?.length || task.row >= level.board.length || task.col >= width) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Custom board task coordinates must stay inside the board.",
+        path: ["boardTasks", taskIndex],
+      });
+    }
+  });
+
+  level.boardCheckpoints?.forEach((checkpoint, checkpointIndex) => {
+    const width = level.board?.[0]?.length ?? 0;
+    if (!level.board?.length || checkpoint.row >= level.board.length || checkpoint.col >= width) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Custom board checkpoint coordinates must stay inside the board.",
+        path: ["boardCheckpoints", checkpointIndex],
+      });
+    }
+  });
+
+  level.prompts?.forEach((prompt, promptIndex) => {
+    const optionTexts = prompt.options?.map((option) => option.text.trim().toLowerCase()) ?? [];
+    if (optionTexts.length > 0 && !optionTexts.includes(prompt.answer.trim().toLowerCase())) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Prompt answer must match one of the provided option texts.",
+        path: ["prompts", promptIndex, "answer"],
+      });
+    }
+  });
 });
 
 const BoardTaskSchema = z.object({
@@ -588,7 +763,7 @@ const BoardTaskSchema = z.object({
 const BoardLegendEntrySchema = z.object({
   label: z.string().min(1),
   walkable: z.boolean().default(true),
-  variant: z.enum(["empty", "wall", "start", "goal", "task"]).optional(),
+  variant: z.enum(["empty", "wall", "start", "goal", "task", "checkpoint"]).optional(),
 });
 
 const BoardEnemySchema = z.object({
@@ -602,9 +777,18 @@ const BoardEnemySchema = z.object({
   speed: z.number().int().min(1).max(10).default(1),
 });
 
+const BoardCheckpointSchema = z.object({
+  id: z.string().min(1),
+  row: z.number().int().min(0),
+  col: z.number().int().min(0),
+  label: z.string().min(1),
+  required: z.boolean().optional(),
+});
+
 const BoardLevelSchema = BaseLevelSchema.extend({
   board: z.array(z.string().min(1)).min(1),
   tasks: z.array(BoardTaskSchema).optional(),
+  checkpoints: z.array(BoardCheckpointSchema).optional(),
   legend: z.record(BoardLegendEntrySchema).optional(),
   enemies: z.array(BoardEnemySchema).optional(),
   enemyCollisionPenalty: z.number().int().min(0).max(1000).optional(),
@@ -627,10 +811,10 @@ const BoardLevelSchema = BaseLevelSchema.extend({
     }
 
     row.split("").forEach((tile, colIndex) => {
-      if (!["#", ".", "S", "G", "T"].includes(tile)) {
+      if (!["#", ".", "S", "G", "T", "C"].includes(tile)) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          message: `Unsupported board tile '${tile}'. Use #, ., S, G, or T.`,
+          message: `Unsupported board tile '${tile}'. Use #, ., S, G, T, or C.`,
           path: ["board", rowIndex, colIndex],
         });
       }
@@ -665,6 +849,16 @@ const BoardLevelSchema = BaseLevelSchema.extend({
         code: z.ZodIssueCode.custom,
         message: "Task coordinates must stay inside the board dimensions.",
         path: ["tasks", taskIndex],
+      });
+    }
+  });
+
+  level.checkpoints?.forEach((checkpoint, checkpointIndex) => {
+    if (checkpoint.row >= level.board.length || checkpoint.col >= width) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Checkpoint coordinates must stay inside the board dimensions.",
+        path: ["checkpoints", checkpointIndex],
       });
     }
   });
@@ -753,6 +947,8 @@ function validateLevels(data: { gameType: string; levels: unknown[] }, ctx: z.Re
     MCQ: MCQLevelSchema,
     DRAG_DROP: DragDropLevelSchema,
     BOARD: BoardLevelSchema,
+    PLATFORMER: CustomLevelSchema,
+    MATH: CustomLevelSchema,
     CUSTOM: CustomLevelSchema,
   } as const;
 
@@ -829,8 +1025,17 @@ export function parseGameConfig(raw: unknown): AnyGameConfig {
 
 export function normalizeGameConfig(config: AnyGameConfig): RuntimeGameConfig {
   const schemaVersion = "schemaVersion" in config ? 2 : 1;
+  const normalizedGameType =
+    config.gameType === GameType.CUSTOM
+      ? config.levels.some((level) => "prompts" in level && Array.isArray(level.prompts) && level.prompts.length > 0)
+        ? GameType.MATH
+        : config.levels.some((level) => "board" in level && Array.isArray(level.board) && "objective" in level)
+          ? GameType.PLATFORMER
+          : config.gameType
+      : config.gameType;
   return {
     ...config,
+    gameType: normalizedGameType,
     schemaVersion,
     interactionMode: schemaVersion === 2 ? "command" : "legacy",
     uiConfig: {
@@ -891,9 +1096,18 @@ export function toGameSummary(config: RuntimeGameConfig): GameSummary {
 }
 
 export function calculateMaxPossibleScore(config: RuntimeGameConfig): number {
+  const adaptiveTimerBonus =
+    config.adaptiveConfig?.enabled && config.adaptiveConfig.adaptTimer
+      ? config.adaptiveConfig.maxTimerAdjustmentSeconds
+      : 0;
+  const adaptiveMultiplierCap =
+    config.adaptiveConfig?.enabled && config.adaptiveConfig.adaptScoring
+      ? config.adaptiveConfig.maximumMultiplier
+      : undefined;
   return config.levels.reduce((sum, level) => {
-    const levelMultiplier = level.bonusMultiplier ?? config.scoringConfig.bonusMultiplier ?? 1;
-    const duration = level.timeLimit ?? config.timerConfig.duration;
+    const configuredMultiplier = level.bonusMultiplier ?? config.scoringConfig.bonusMultiplier ?? 1;
+    const levelMultiplier = Math.max(configuredMultiplier, adaptiveMultiplierCap ?? configuredMultiplier);
+    const duration = (level.timeLimit ?? config.timerConfig.duration) + adaptiveTimerBonus;
     const timeBonus =
       config.scoringConfig.timeBonusFormula === "none"
         ? 0
@@ -922,14 +1136,28 @@ export function calculateMaxPossibleScore(config: RuntimeGameConfig): number {
       baseScore = level.items.length * config.scoringConfig.basePoints;
     }
 
-    if ("board" in level) {
+    if ("board" in level && !("objective" in level)) {
       const boardTaskCount =
         level.tasks?.length ?? level.board.join("").split("").filter((tile) => tile === "T").length;
-      baseScore = Math.max(1, boardTaskCount) * config.scoringConfig.basePoints;
+      const boardCheckpointCount =
+        level.checkpoints?.filter((checkpoint) => checkpoint.required !== false).length ??
+        level.board.join("").split("").filter((tile) => tile === "C").length;
+      baseScore = Math.max(1, boardTaskCount + boardCheckpointCount) * config.scoringConfig.basePoints;
     }
 
     if ("objective" in level) {
-      baseScore = Math.max(1, level.checkpoints?.length ?? 1) * config.scoringConfig.basePoints;
+      if (level.prompts?.length) {
+        baseScore = level.prompts.length * config.scoringConfig.basePoints;
+      } else if (level.board?.length) {
+        const boardTaskCount =
+          level.boardTasks?.length ?? level.board.join("").split("").filter((tile) => tile === "T").length;
+        const boardCheckpointCount =
+          level.boardCheckpoints?.filter((checkpoint) => checkpoint.required !== false).length ??
+          level.board.join("").split("").filter((tile) => tile === "C").length;
+        baseScore = Math.max(1, boardTaskCount + boardCheckpointCount) * config.scoringConfig.basePoints;
+      } else {
+        baseScore = Math.max(1, level.checkpoints?.length ?? 1) * config.scoringConfig.basePoints;
+      }
     }
 
     return sum + Math.floor(baseScore * levelMultiplier + timeBonus);
@@ -954,13 +1182,30 @@ export function calculateMinimumTimeMs(config: RuntimeGameConfig): number {
       return sum + level.items.length * 900;
     }
 
-    if ("board" in level) {
+    if ("board" in level && !("objective" in level)) {
       const walkableCells = level.board.join("").split("").filter((tile) => tile !== "#").length;
       const taskCount = level.tasks?.length ?? level.board.join("").split("").filter((tile) => tile === "T").length;
-      return sum + Math.max(3500, walkableCells * 120 + taskCount * 900);
+      const checkpointCount =
+        level.checkpoints?.filter((checkpoint) => checkpoint.required !== false).length ??
+        level.board.join("").split("").filter((tile) => tile === "C").length;
+      return sum + Math.max(3500, walkableCells * 120 + (taskCount + checkpointCount) * 900);
     }
 
     if ("objective" in level) {
+      if (level.prompts?.length) {
+        return sum + Math.max(2500, level.prompts.length * 1200);
+      }
+
+      if (level.board?.length) {
+        const walkableCells = level.board.join("").split("").filter((tile) => tile !== "#").length;
+        const taskCount =
+          level.boardTasks?.length ?? level.board.join("").split("").filter((tile) => tile === "T").length;
+        const checkpointCount =
+          level.boardCheckpoints?.filter((checkpoint) => checkpoint.required !== false).length ??
+          level.board.join("").split("").filter((tile) => tile === "C").length;
+        return sum + Math.max(3000, walkableCells * 120 + (taskCount + checkpointCount) * 850);
+      }
+
       return sum + Math.max(2500, (level.checkpoints?.length ?? 1) * 1500);
     }
 
@@ -989,6 +1234,30 @@ export function getBoardTaskPositions(level: BoardLevelConfig): BoardTask[] {
   });
 
   return tasks;
+}
+
+export function getBoardCheckpointPositions(level: BoardLevelConfig): BoardCheckpoint[] {
+  if (level.checkpoints && level.checkpoints.length > 0) {
+    return level.checkpoints;
+  }
+
+  const checkpoints: BoardCheckpoint[] = [];
+
+  level.board.forEach((row, rowIndex) => {
+    row.split("").forEach((tile, colIndex) => {
+      if (tile === "C") {
+        checkpoints.push({
+          id: `checkpoint-${rowIndex}-${colIndex}`,
+          row: rowIndex,
+          col: colIndex,
+          label: `Checkpoint ${checkpoints.length + 1}`,
+          required: true,
+        });
+      }
+    });
+  });
+
+  return checkpoints;
 }
 
 export function getBoardStart(level: BoardLevelConfig): { row: number; col: number } {

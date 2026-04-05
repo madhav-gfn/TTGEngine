@@ -1,0 +1,100 @@
+{
+  "schemaVersion": 2,
+  "gameId": "math-orbit",
+  "gameType": "CUSTOM",
+  "title": "Math Orbit",
+  "description": "A custom-rendered math challenge that extends quiz interactions with multi-prompt answer rounds.",
+  "version": "1.0.0",
+  "difficulty": "medium",
+  "levels": [
+    {
+      "levelNumber": 1,
+      "name": "Warmup Orbit",
+      "objective": "Solve the arithmetic prompts and hit the pass threshold.",
+      "instruction": "Choose the correct answer for each prompt.",
+      "successText": "Trajectory locked.",
+      "renderer": { "kind": "math", "strategy": "extend-mcq", "title": "Math" },
+      "prompts": [
+        {
+          "id": "prompt-1",
+          "prompt": "8 + 4 = ?",
+          "answer": "12",
+          "options": [{ "id": "A", "text": "12" }, { "id": "B", "text": "10" }, { "id": "C", "text": "14" }, { "id": "D", "text": "11" }],
+          "hint": "Add the ones first.",
+          "explanation": "8 plus 4 equals 12."
+        },
+        {
+          "id": "prompt-2",
+          "prompt": "15 - 6 = ?",
+          "answer": "9",
+          "options": [{ "id": "A", "text": "9" }, { "id": "B", "text": "7" }, { "id": "C", "text": "10" }, { "id": "D", "text": "8" }],
+          "hint": "Subtract six from fifteen.",
+          "explanation": "15 minus 6 equals 9."
+        }
+      ],
+      "passingScore": 70
+    },
+    {
+      "levelNumber": 2,
+      "name": "Pattern Orbit",
+      "objective": "Complete the next set with higher accuracy.",
+      "instruction": "Each correct answer improves your pass rate.",
+      "successText": "Pattern confirmed.",
+      "renderer": { "kind": "math", "strategy": "extend-mcq", "title": "Math" },
+      "prompts": [
+        {
+          "id": "prompt-3",
+          "prompt": "21 + 9 = ?",
+          "answer": "30",
+          "options": [{ "id": "A", "text": "28" }, { "id": "B", "text": "30" }, { "id": "C", "text": "31" }, { "id": "D", "text": "29" }],
+          "hint": "Twenty-one plus nine lands on a round number.",
+          "explanation": "21 plus 9 equals 30."
+        },
+        {
+          "id": "prompt-4",
+          "prompt": "36 / 6 = ?",
+          "answer": "6",
+          "options": [{ "id": "A", "text": "5" }, { "id": "B", "text": "6" }, { "id": "C", "text": "7" }, { "id": "D", "text": "8" }],
+          "hint": "Think of 6 times what gives 36.",
+          "explanation": "36 divided by 6 equals 6."
+        },
+        {
+          "id": "prompt-5",
+          "prompt": "5 x 7 = ?",
+          "answer": "35",
+          "options": [{ "id": "A", "text": "30" }, { "id": "B", "text": "35" }, { "id": "C", "text": "40" }, { "id": "D", "text": "25" }],
+          "hint": "Five groups of seven.",
+          "explanation": "5 multiplied by 7 equals 35."
+        }
+      ],
+      "passingScore": 75
+    }
+  ],
+  "timerConfig": { "type": "countdown", "duration": 90, "warningAt": [20, 10, 5] },
+  "scoringConfig": { "basePoints": 60, "bonusMultiplier": 1, "penaltyPerHint": 5, "penaltyPerWrong": 10, "timeBonusFormula": "linear", "timeBonusMultiplier": 1 },
+  "uiConfig": { "theme": "system", "primaryColor": "#0f766e", "secondaryColor": "#f59e0b", "iconSet": "lucide", "layout": "centered", "showTimer": true, "showScore": true, "showProgress": true },
+  "metadata": {
+    "author": "TaPTaP Engine Team",
+    "createdAt": "2026-04-05T00:00:00.000Z",
+    "updatedAt": "2026-04-05T00:00:00.000Z",
+    "tags": ["custom", "math", "quiz", "ai-ready"],
+    "targetSkill": "problem solving",
+    "estimatedPlayTime": 5
+  },
+  "apiConfig": { "leaderboardEndpoint": "/api/leaderboard/math-orbit", "scoreSubmitEndpoint": "/api/score" },
+  "adaptiveConfig": {
+    "enabled": true,
+    "supportThreshold": 0.55,
+    "challengeThreshold": 0.9,
+    "timerAdjustmentSeconds": 10,
+    "multiplierAdjustment": 0.2,
+    "maxTimerAdjustmentSeconds": 30,
+    "minimumMultiplier": 0.75,
+    "maximumMultiplier": 2,
+    "adaptContent": true,
+    "adaptTimer": true,
+    "adaptScoring": true,
+    "adaptPenalties": true
+  },
+  "aiConfig": { "enabled": true, "provider": "local-template", "fallbackToLocal": true }
+}

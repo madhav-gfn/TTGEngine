@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { CommandEngine } from "@/core/interaction/CommandEngine";
 import { boardCommandAdapter, type BoardSession } from "@/core/interaction/adapters";
 import {
+  getBoardCheckpointPositions,
   getBoardGoal,
   getBoardStart,
   getBoardTaskPositions,
@@ -26,6 +27,9 @@ function tileLabel(tile: string): string {
   if (tile === "T") {
     return "Task";
   }
+  if (tile === "C") {
+    return "Checkpoint";
+  }
   return "Path";
 }
 
@@ -39,10 +43,14 @@ export function BoardRenderer({ config, level, levelIndex, runtime, onAction, on
   );
   const [status, setStatus] = useState("Use arrow keys or WASD to move through the board.");
   const tasks = getBoardTaskPositions(boardLevel);
+  const checkpoints = getBoardCheckpointPositions(boardLevel);
+  const requiredCheckpoints = checkpoints.filter((checkpoint) => checkpoint.required !== false);
   const goal = getBoardGoal(boardLevel);
   const start = getBoardStart(boardLevel);
   const smartboardEnabled = config.uiConfig.smartboard?.enabled;
   const autoScaleBoard = config.uiConfig.smartboard?.autoScaleBoard;
+  const progressCount = session.collectedTaskIds.length + session.activatedCheckpointIds.length;
+  const progressTotal = tasks.length + requiredCheckpoints.length;
 
   useEffect(() => {
     setSession(boardEngine.createSession({
@@ -72,9 +80,9 @@ export function BoardRenderer({ config, level, levelIndex, runtime, onAction, on
     if (outcome.completion && !session.completed) {
       onComplete({
         completed: outcome.completion.completed,
-        correctActions: outcome.session.collectedTaskIds.length,
+        correctActions: outcome.session.collectedTaskIds.length + outcome.session.activatedCheckpointIds.length,
         wrongActions: 0,
-        totalActions: tasks.length,
+        totalActions: progressTotal,
         hintsUsed: 0,
         metadata: outcome.completion.metadata,
       });
@@ -91,7 +99,7 @@ export function BoardRenderer({ config, level, levelIndex, runtime, onAction, on
           <h3 className="renderer-title">Level {boardLevel.levelNumber}</h3>
         </div>
         <span className="question-tag">
-          Tasks {session.collectedTaskIds.length}/{tasks.length}
+          Progress {progressCount}/{progressTotal}
         </span>
       </div>
       {runtime ? <p className="status-line">{runtime.summary}</p> : null}
@@ -109,9 +117,23 @@ export function BoardRenderer({ config, level, levelIndex, runtime, onAction, on
             const isEnemy = session.enemies.some((enemy) => enemy.row === rowIndex && enemy.col === colIndex);
             const isGoal = goal.row === rowIndex && goal.col === colIndex;
             const task = tasks.find((entry) => entry.row === rowIndex && entry.col === colIndex);
+            const checkpoint = checkpoints.find((entry) => entry.row === rowIndex && entry.col === colIndex);
             const collected = task ? session.collectedTaskIds.includes(task.id) : false;
-            const tileDisplay = isPlayer ? "P" : isEnemy ? "E" : collected ? "." : task ? "T" : tile === "." ? "" : tile;
-            const tileKind = task ? "T" : tile;
+            const checkpointReached = checkpoint ? session.activatedCheckpointIds.includes(checkpoint.id) : false;
+            const tileDisplay = isPlayer
+              ? "P"
+              : isEnemy
+                ? "E"
+                : collected || checkpointReached
+                  ? "."
+                  : task
+                    ? "T"
+                    : checkpoint
+                      ? "C"
+                      : tile === "."
+                        ? ""
+                        : tile;
+            const tileKind = task ? "T" : checkpoint ? "C" : tile;
             return (
               <div
                 key={`${rowIndex}-${colIndex}`}
@@ -121,7 +143,7 @@ export function BoardRenderer({ config, level, levelIndex, runtime, onAction, on
                   isGoal ? "is-goal" : "",
                   isPlayer ? "is-player" : "",
                   isEnemy ? "is-enemy" : "",
-                  collected ? "is-cleared" : "",
+                  collected || checkpointReached ? "is-cleared" : "",
                   smartboardEnabled ? "is-smartboard" : "",
                 ].join(" ").trim()}
                 aria-label={`${tileLabel(tileKind)} at row ${rowIndex + 1}, column ${colIndex + 1}`}
@@ -135,6 +157,7 @@ export function BoardRenderer({ config, level, levelIndex, runtime, onAction, on
       <div className="board-meta">
         <span className="tag-chip">Start {start.row + 1},{start.col + 1}</span>
         <span className="tag-chip">Goal {goal.row + 1},{goal.col + 1}</span>
+        <span className="tag-chip">Checkpoints {session.activatedCheckpointIds.length}/{requiredCheckpoints.length}</span>
         <span className="tag-chip">Enemies {session.enemies.length}</span>
         <span className="tag-chip">Hits {session.collisions}</span>
       </div>

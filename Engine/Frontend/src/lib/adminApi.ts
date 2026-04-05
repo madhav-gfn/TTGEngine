@@ -1,6 +1,6 @@
 import { deleteJson, getJson, postJson, putJson } from "./api";
 import { ADMIN_API_KEY, API_ENDPOINTS } from "./constants";
-import type { Difficulty, GameType, LeaderboardEntry } from "@/core/types";
+import type { CustomRendererKind, Difficulty, GameType, LeaderboardEntry } from "@/core/types";
 
 interface ApiSuccess<T> {
   success: true;
@@ -80,4 +80,34 @@ export async function updateAdminGame(gameId: string, config: unknown): Promise<
 
 export async function deleteAdminGame(gameId: string): Promise<void> {
   await deleteJson<ApiSuccess<unknown>>(`${API_ENDPOINTS.admin}/games/${encodeURIComponent(gameId)}`, withAdminHeaders());
+}
+
+export async function generateAdminGameDraft(input: {
+  prompt: string;
+  gameType: string;
+  difficulty: Difficulty;
+  targetSkill: string;
+  aiProvider: "local-template" | "openai-compatible" | "google-genai";
+  customRendererKind?: CustomRendererKind;
+}): Promise<unknown> {
+  const response = await postJson<ApiSuccess<unknown>>(
+    `${API_ENDPOINTS.admin}/ai/game`,
+    input,
+    withAdminHeaders(),
+  );
+  return response.data;
+}
+
+export async function generateAdminLevels(input: {
+  config: unknown;
+  prompt: string;
+  count: number;
+  aiProvider: "local-template" | "openai-compatible" | "google-genai";
+}): Promise<unknown> {
+  const response = await postJson<ApiSuccess<unknown>>(
+    `${API_ENDPOINTS.admin}/ai/levels`,
+    input,
+    withAdminHeaders(),
+  );
+  return response.data;
 }

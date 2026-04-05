@@ -18,6 +18,8 @@ const defaultRendererMap: Record<GameType, RendererComponent> = {
   [GameTypeEnum.MCQ]: MCQRenderer,
   [GameTypeEnum.DRAG_DROP]: DragDropRenderer,
   [GameTypeEnum.BOARD]: BoardRenderer,
+  [GameTypeEnum.PLATFORMER]: CustomRenderer,
+  [GameTypeEnum.MATH]: CustomRenderer,
   [GameTypeEnum.CUSTOM]: CustomRenderer,
 };
 
@@ -76,7 +78,7 @@ export class GameRegistry {
   }
 
   getRendererForType(gameType: GameType): RendererComponent {
-    return this.rendererMap.get(gameType) ?? defaultRendererMap[GameTypeEnum.CUSTOM];
+    return this.rendererMap.get(gameType) ?? defaultRendererMap[GameTypeEnum.BOARD];
   }
 }
 
