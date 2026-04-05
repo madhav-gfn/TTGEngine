@@ -1,26 +1,34 @@
 import type { PropsWithChildren } from "react";
 
-interface ModalProps extends PropsWithChildren {
+interface ModalProps {
+  title?: string;
   open: boolean;
-  title: string;
   onClose: () => void;
 }
 
-export function Modal({ open, title, onClose, children }: ModalProps) {
-  if (!open) {
-    return null;
-  }
+export function Modal({ title, open, onClose, children }: PropsWithChildren<ModalProps>) {
+  if (!open) return null;
 
   return (
-    <div className="modal-backdrop" role="presentation" onClick={onClose}>
-      <div className="modal-card" role="dialog" aria-modal="true" aria-label={title} onClick={(event) => event.stopPropagation()}>
-        <div className="modal-header">
-          <h3>{title}</h3>
-          <button className="button button-ghost" type="button" onClick={onClose}>
-            Close
-          </button>
-        </div>
-        <div className="modal-body">{children}</div>
+    <div className="modal-backdrop" role="dialog" aria-modal="true" onClick={onClose}>
+      <div
+        className="modal-card"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {title && (
+          <div className="flex items-center justify-between gap-3 mb-5">
+            <h2 className="font-display font-bold text-lg text-ink">{title}</h2>
+            <button
+              type="button"
+              className="w-8 h-8 rounded-lg text-ink-muted hover:bg-gray-100 transition-colors flex items-center justify-center text-xl"
+              onClick={onClose}
+              aria-label="Close modal"
+            >
+              ×
+            </button>
+          </div>
+        )}
+        {children}
       </div>
     </div>
   );

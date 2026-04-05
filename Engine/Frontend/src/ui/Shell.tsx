@@ -1,112 +1,104 @@
-import type { CSSProperties } from "react";
-import { useState } from "react";
+import { Outlet, NavLink, useNavigate, useLocation } from "react-router-dom";
 import { useGameLifecycle } from "@/hooks/useGameLifecycle";
-import { APP_THEME } from "@/lib/constants";
 import { useGameStore } from "@/store/gameStore";
-import { AdminDashboard } from "./AdminDashboard";
-import { GameSelector } from "./GameSelector";
-import { GameContainer } from "./GameContainer";
+import { GameLifecycleContext } from "@/core/GameLifecycleContext";
 import { Toast } from "./shared/Toast";
-import { Button } from "./shared/Button";
 
 export function Shell() {
   const actions = useGameLifecycle();
-  const [viewMode, setViewMode] = useState<"player" | "admin">("player");
-  const availableGames = useGameStore((state) => state.availableGames);
-  const lifecycleState = useGameStore((state) => state.lifecycleState);
-  const activeConfig = useGameStore((state) => state.activeConfig);
-  const backendStatus = useGameStore((state) => state.backendStatus);
+  const backendStatus = useGameStore((s) => s.backendStatus);
+  const navigate = useNavigate();
+  const location = useLocation();
 
-  const themeStyle = {
-    "--accent-primary": APP_THEME.primaryColor,
-    "--accent-secondary": APP_THEME.secondaryColor,
-  } as CSSProperties;
-  const layoutMode = activeConfig?.uiConfig?.layout ?? "sidebar";
+  const isAdmin = location.pathname.startsWith("/admin");
+
+  function handleAdminToggle() {
+    if (isAdmin) {
+      navigate("/");
+    } else {
+      navigate("/admin");
+    }
+  }
 
   return (
-    <div className={`shell-root layout-${layoutMode}`} style={themeStyle} data-theme={APP_THEME.mode}>
-      <header className="shell-header">
-        <div>
-          <p className="eyebrow">TaPTaP Engine</p>
-          <h1>JSON-Driven Learning Games</h1>
-        </div>
-        <div className="header-badges">
-          <span className="tag-chip">State: {lifecycleState}</span>
-          <span className="tag-chip">Backend: {backendStatus.message}</span>
-          <span className="tag-chip">Engine / Data separated</span>
-          <Button
-            variant="secondary"
-            onClick={() => setViewMode((prev) => (prev === "player" ? "admin" : "player"))}
-          >
-            {viewMode === "player" ? "Open Admin Dashboard" : "Back To Player View"}
-          </Button>
-        </div>
-      </header>
-      <main className={`shell-layout layout-${layoutMode}`}>
-        <section className="shell-main">
-          {viewMode === "admin" ? (
-            <AdminDashboard />
-          ) : lifecycleState === "IDLE" ? (
-            <>
-              <div className="hero-card accent-card">
-                <p className="eyebrow">Engine Loop</p>
-                <h2>Runtime-loaded games, shared engine core, live loop updates</h2>
-                <p>
-                  Select any game below. The frontend fetches its JSON at runtime, validates it,
-                  normalizes v1 and v2 configs, starts the engine lifecycle, and runs the timer/input/update loop live.
-                </p>
+    <GameLifecycleContext.Provider value={actions}>
+      <div className="min-h-screen bg-surface-muted flex flex-col">
+        {/* ── Top Navigation ── */}
+        <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-sm border-b border-gray-100 shadow-sm">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-14 flex items-center justify-between gap-4">
+            {/* Logo */}
+            <NavLink to="/" className="flex items-center gap-2.5 shrink-0">
+              <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-teal-600 to-teal-800 flex items-center justify-center shadow-sm">
+                <span className="text-white font-black text-[10px]">T²</span>
               </div>
-              <GameSelector
-                games={availableGames}
-                backendMessage={backendStatus.message}
-                onSelect={(gameId) => void actions.selectGame(gameId)}
-              />
-            </>
-          ) : (
-            <GameContainer
-              startCurrentLevel={actions.startCurrentLevel}
-              pauseGame={actions.pauseGame}
-              completeLevel={actions.completeLevel}
-              nextLevel={actions.nextLevel}
-              submitAction={actions.submitAction}
-              replayGame={actions.replayGame}
-              backToGames={actions.backToGames}
-              dismissError={actions.dismissError}
-            />
-          )}
-        </section>
-        {layoutMode !== "fullscreen" ? (
-          <aside className="shell-aside">
-            <div className="aside-card">
-              <p className="eyebrow">Architecture</p>
-              <h3>Engine Core</h3>
-              <ul>
-                <li>Registry discovers games through the backend manifest.</li>
-                <li>Shared contracts normalize v1 and v2 JSON before render.</li>
-                <li>Command-driven input now powers keyboard, pointer, and hybrid flows.</li>
-                <li>Leaderboard API stays outside the frontend runtime.</li>
-              </ul>
+              <span className="font-display font-bold text-sm text-ink tracking-tight">
+                TaPTaP <span className="text-teal-700">Engine</span>
+              </span>
+            </NavLink>
+
+            {/* Right side controls */}
+            <div className="flex items-center gap-2">
+              {/* Backend status indicator */}
+              <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-gray-100 border border-gray-200">
+                <span
+                  className={`w-1.5 h-1.5 rounded-full ${
+                    backendStatus.state === "online"
+                      ? "bg-green-500"
+                      : backendStatus.state === "offline"
+                        ? "bg-red-400"
+                        : "bg-amber-400 animate-pulse"
+                  }`}
+                />
+                <span className="text-[10px] font-semibold text-ink-muted capitalize">
+                  {backendStatus.state === "checking" ? "Connecting" : backendStatus.state}
+                </span>
+              </div>
+
+              <NavLink
+                to="/"
+                end
+                className={({ isActive }) =>
+                  `px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                    isActive
+                      ? "bg-teal-50 text-teal-700"
+                      : "text-ink-muted hover:text-ink hover:bg-gray-100"
+                  }`
+                }
+              >
+                Game Hub
+              </NavLink>
+
+              <button
+                type="button"
+                onClick={handleAdminToggle}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                  isAdmin
+                    ? "bg-teal-50 text-teal-700"
+                    : "text-ink-muted hover:text-ink hover:bg-gray-100"
+                }`}
+              >
+                {isAdmin ? "← Player View" : "Admin"}
+              </button>
+
+              {/* Profile avatar */}
+              <div
+                className="w-7 h-7 rounded-full bg-gradient-to-br from-teal-400 to-teal-700 flex items-center justify-center text-white text-[10px] font-bold cursor-pointer select-none"
+                title="Player profile"
+              >
+                P
+              </div>
             </div>
-            {activeConfig ? (
-              <div className="aside-card">
-                <p className="eyebrow">Active Config</p>
-                <h3>{activeConfig.title}</h3>
-                <p>{activeConfig.metadata?.targetSkill ?? "Skill-driven gameplay"}</p>
-                <div className="tag-row">
-                  <span className="tag-chip">Schema v{activeConfig.schemaVersion}</span>
-                  <span className="tag-chip">{activeConfig.interactionMode}</span>
-                  {(activeConfig.metadata?.tags ?? []).map((tag) => (
-                    <span key={tag} className="tag-chip">
-                      {tag}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-          </aside>
-        ) : null}
-      </main>
-      <Toast />
-    </div>
+          </div>
+        </header>
+
+        {/* ── Page Content ── */}
+        <main className="flex-1 w-full">
+          <Outlet />
+        </main>
+
+        {/* ── Global Toast Notifications ── */}
+        <Toast />
+      </div>
+    </GameLifecycleContext.Provider>
   );
 }

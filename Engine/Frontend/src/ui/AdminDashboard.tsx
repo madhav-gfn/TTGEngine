@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+﻿import { useEffect, useMemo, useState } from "react";
 import { ApiError } from "@/lib/api";
 import {
   createAdminGame,
@@ -869,768 +869,460 @@ export function AdminDashboard() {
               : customLevels.length;
 
   return (
-    <section className="admin-grid">
-      <article className="admin-card admin-summary-card">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      {/* â”€â”€ Page header â”€â”€ */}
+      <div className="flex items-center justify-between gap-4 mb-8 flex-wrap">
         <div>
-          <p className="eyebrow">Admin Dashboard</p>
-          <h2>Easy game creator: multi-level and auto-generated config</h2>
+          <p className="eyebrow mb-1">Admin Dashboard</p>
+          <h1 className="font-display font-bold text-2xl text-ink">Game Management</h1>
         </div>
-        <div className="button-row">
-          <Button variant="secondary" onClick={() => void refreshOverview()} disabled={isLoading}>
-            {isLoading ? "Refreshing..." : "Refresh Stats"}
+        <div className="flex gap-2">
+          <Button variant="secondary" size="sm" onClick={() => void refreshOverview()} disabled={isLoading}>
+            {isLoading ? "Refreshingâ€¦" : "âŸ³ Refresh"}
           </Button>
-          <Button variant="secondary" onClick={switchToCreate}>
-            New Game Builder
+          <Button size="sm" onClick={switchToCreate}>
+            + New Game
           </Button>
         </div>
-      </article>
+      </div>
 
-      <article className="admin-card admin-metrics-grid">
-        <div className="metric-block">
-          <span>Total Games</span>
-          <strong>{overview?.overall.totalGames ?? 0}</strong>
-        </div>
-        <div className="metric-block">
-          <span>Total Submissions</span>
-          <strong>{overview?.overall.submissions ?? 0}</strong>
-        </div>
-        <div className="metric-block">
-          <span>Valid Leaderboard Submissions</span>
-          <strong>{overview?.overall.validSubmissions ?? 0}</strong>
-        </div>
-        <div className="metric-block">
-          <span>Unique Players</span>
-          <strong>{overview?.overall.players ?? 0}</strong>
-        </div>
-      </article>
-
-      <article className="admin-card admin-table-card">
-        <div className="table-scroll">
-          <table className="admin-table">
-            <thead>
-              <tr>
-                <th>Game</th>
-                <th>Type</th>
-                <th>Difficulty</th>
-                <th>Submissions</th>
-                <th>Players</th>
-                <th>Best Score</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(overview?.games ?? []).map((game) => (
-                <tr key={game.gameId} className={game.gameId === selectedGameId ? "is-selected" : ""}>
-                  <td>
-                    <strong>{game.title}</strong>
-                    <div className="table-subtext">{game.gameId}</div>
-                  </td>
-                  <td>{game.gameType}</td>
-                  <td>{game.difficulty}</td>
-                  <td>{game.submissions}</td>
-                  <td>{game.players}</td>
-                  <td>{game.highScore ?? "-"}</td>
-                  <td>
-                    <Button variant="ghost" onClick={() => void loadGameIntoBuilder(game.gameId)}>
-                      Open Builder
-                    </Button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </article>
-
-      <article className="admin-card admin-editor-card">
-        <div className="admin-editor-header">
-          <div>
-            <p className="eyebrow">Game Builder</p>
-            <h3>{isCreateMode ? "Create New Game" : `Editing ${selectedGameId}`}</h3>
+      {/* â”€â”€ Stats strip â”€â”€ */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
+        {[
+          { label: "Total Games", value: overview?.overall.totalGames ?? 0 },
+          { label: "Submissions", value: overview?.overall.submissions ?? 0 },
+          { label: "Valid Ranked", value: overview?.overall.validSubmissions ?? 0 },
+          { label: "Unique Players", value: overview?.overall.players ?? 0 },
+        ].map((stat) => (
+          <div key={stat.label} className="metric-block bg-white border border-gray-100 shadow-card">
+            <span>{stat.label}</span>
+            <strong>{stat.value}</strong>
           </div>
-          <div className="button-row">
-            <Button onClick={() => void saveGame()} disabled={isSaving}>
-              {isSaving ? "Saving..." : isCreateMode ? "Create Game" : "Update Game"}
-            </Button>
-            {!isCreateMode ? (
-              <Button variant="secondary" onClick={() => void removeGame()} disabled={isDeleting}>
-                {isDeleting ? "Deleting..." : "Delete Game"}
-              </Button>
-            ) : null}
-          </div>
-        </div>
+        ))}
+      </div>
 
-        <div className="admin-form-grid">
-          <label className="admin-label">
-            Game Id
-            <input
-              className="admin-input"
-              value={coreForm.gameId}
-              onChange={(event) => setCoreForm((prev) => ({ ...prev, gameId: event.target.value }))}
-            />
-          </label>
+      {/* â”€â”€ Main content â”€â”€ */}
+      <div className="grid grid-cols-1 xl:grid-cols-[1fr_360px] gap-6">
 
-          <label className="admin-label">
-            Title
-            <input
-              className="admin-input"
-              value={coreForm.title}
-              onChange={(event) => setCoreForm((prev) => ({ ...prev, title: event.target.value }))}
-            />
-          </label>
+        {/* â”€â”€ Left: Game builder â”€â”€ */}
+        <div className="space-y-6">
+          {/* Header */}
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-card p-6">
+            <div className="flex items-center justify-between gap-4 flex-wrap mb-6">
+              <div>
+                <p className="eyebrow mb-0.5">Game Builder</p>
+                <h2 className="font-display font-bold text-lg text-ink">
+                  {isCreateMode ? "Create New Game" : `Editing: ${selectedGameId}`}
+                </h2>
+              </div>
+              <div className="flex gap-2">
+                <Button onClick={() => void saveGame()} disabled={isSaving} size="sm">
+                  {isSaving ? "Savingâ€¦" : isCreateMode ? "Create Game" : "Update Game"}
+                </Button>
+                {!isCreateMode ? (
+                  <Button variant="danger" size="sm" onClick={() => void removeGame()} disabled={isDeleting}>
+                    {isDeleting ? "Deletingâ€¦" : "Delete"}
+                  </Button>
+                ) : null}
+              </div>
+            </div>
 
-          <label className="admin-label admin-field-span-2">
-            Description
-            <textarea
-              className="admin-input"
-              value={coreForm.description}
-              onChange={(event) => setCoreForm((prev) => ({ ...prev, description: event.target.value }))}
-            />
-          </label>
+            {error ? <p className="admin-status admin-status-error mb-4">{error}</p> : null}
+            {notice ? <p className="admin-status admin-status-success mb-4">{notice}</p> : null}
 
-          <label className="admin-label">
-            Game Type
-            <select
-              className="admin-input"
-              value={coreForm.gameType}
-              onChange={(event) => setCoreForm((prev) => ({ ...prev, gameType: event.target.value as GameType }))}
-            >
-              <option value="MCQ">Quiz (MCQ)</option>
-              <option value="WORD">Word Builder</option>
-              <option value="GRID">Number Grid Puzzle</option>
-              <option value="DRAG_DROP">Drag and Drop Match</option>
-              <option value="BOARD">Maze / Board Runner</option>
-            </select>
-          </label>
-
-          <label className="admin-label">
-            Difficulty
-            <select
-              className="admin-input"
-              value={coreForm.difficulty}
-              onChange={(event) => setCoreForm((prev) => ({ ...prev, difficulty: event.target.value as Difficulty }))}
-            >
-              <option value="easy">easy</option>
-              <option value="medium">medium</option>
-              <option value="hard">hard</option>
-            </select>
-          </label>
-
-          <label className="admin-label">
-            Version
-            <input
-              className="admin-input"
-              value={coreForm.version}
-              onChange={(event) => setCoreForm((prev) => ({ ...prev, version: event.target.value }))}
-            />
-          </label>
-
-          <label className="admin-label">
-            Folder Name (create only)
-            <input
-              className="admin-input"
-              value={coreForm.directoryName}
-              onChange={(event) => setCoreForm((prev) => ({ ...prev, directoryName: event.target.value }))}
-              disabled={!isCreateMode}
-            />
-          </label>
-
-          <label className="admin-label">
-            Author
-            <input
-              className="admin-input"
-              value={coreForm.author}
-              onChange={(event) => setCoreForm((prev) => ({ ...prev, author: event.target.value }))}
-            />
-          </label>
-
-          <label className="admin-label">
-            Tags (comma separated)
-            <input
-              className="admin-input"
-              value={coreForm.tagsText}
-              onChange={(event) => setCoreForm((prev) => ({ ...prev, tagsText: event.target.value }))}
-            />
-          </label>
-
-          <label className="admin-label">
-            Target Skill
-            <input
-              className="admin-input"
-              value={coreForm.targetSkill}
-              onChange={(event) => setCoreForm((prev) => ({ ...prev, targetSkill: event.target.value }))}
-            />
-          </label>
-
-          <label className="admin-label">
-            Estimated Play Time (min)
-            <input
-              type="number"
-              className="admin-input"
-              value={coreForm.estimatedPlayTime}
-              onChange={(event) => setCoreForm((prev) => ({ ...prev, estimatedPlayTime: Number(event.target.value) || 1 }))}
-            />
-          </label>
-
-          <label className="admin-label">
-            Timer Type
-            <select
-              className="admin-input"
-              value={coreForm.timerType}
-              onChange={(event) =>
-                setCoreForm((prev) => ({ ...prev, timerType: event.target.value as "countdown" | "countup" }))
-              }
-            >
-              <option value="countdown">countdown</option>
-              <option value="countup">countup</option>
-            </select>
-          </label>
-
-          <label className="admin-label">
-            Timer Duration (sec)
-            <input
-              type="number"
-              className="admin-input"
-              value={coreForm.timerDuration}
-              onChange={(event) => setCoreForm((prev) => ({ ...prev, timerDuration: Number(event.target.value) || 10 }))}
-            />
-          </label>
-
-          <label className="admin-label">
-            Warning At (comma separated)
-            <input
-              className="admin-input"
-              value={coreForm.warningAtText}
-              onChange={(event) => setCoreForm((prev) => ({ ...prev, warningAtText: event.target.value }))}
-            />
-          </label>
-
-          <label className="admin-label">
-            Base Points
-            <input
-              type="number"
-              className="admin-input"
-              value={coreForm.basePoints}
-              onChange={(event) => setCoreForm((prev) => ({ ...prev, basePoints: Number(event.target.value) || 1 }))}
-            />
-          </label>
-
-          <label className="admin-label">
-            Level Bonus Multiplier
-            <input
-              type="number"
-              className="admin-input"
-              value={coreForm.bonusMultiplier}
-              onChange={(event) => setCoreForm((prev) => ({ ...prev, bonusMultiplier: Number(event.target.value) || 1 }))}
-            />
-          </label>
-
-          <label className="admin-label">
-            Penalty Per Hint
-            <input
-              type="number"
-              className="admin-input"
-              value={coreForm.penaltyPerHint}
-              onChange={(event) => setCoreForm((prev) => ({ ...prev, penaltyPerHint: Number(event.target.value) || 0 }))}
-            />
-          </label>
-
-          <label className="admin-label">
-            Penalty Per Wrong
-            <input
-              type="number"
-              className="admin-input"
-              value={coreForm.penaltyPerWrong}
-              onChange={(event) => setCoreForm((prev) => ({ ...prev, penaltyPerWrong: Number(event.target.value) || 0 }))}
-            />
-          </label>
-
-          <label className="admin-label">
-            Time Bonus Formula
-            <select
-              className="admin-input"
-              value={coreForm.timeBonusFormula}
-              onChange={(event) =>
-                setCoreForm((prev) => ({
-                  ...prev,
-                  timeBonusFormula: event.target.value as "none" | "linear" | "exponential",
-                }))
-              }
-            >
-              <option value="none">none</option>
-              <option value="linear">linear</option>
-              <option value="exponential">exponential</option>
-            </select>
-          </label>
-
-          <label className="admin-label">
-            Time Bonus Multiplier
-            <input
-              type="number"
-              className="admin-input"
-              value={coreForm.timeBonusMultiplier}
-              onChange={(event) =>
-                setCoreForm((prev) => ({ ...prev, timeBonusMultiplier: Number(event.target.value) || 0 }))
-              }
-            />
-          </label>
-        </div>
-
-        <section className="admin-level-card">
-          <div className="admin-level-header">
-            <h4>{coreForm.gameType} Levels</h4>
-            <div className="button-row">
-              <span className="table-subtext">{activeLevelCount} level(s)</span>
-              <Button variant="secondary" onClick={addLevel}>
-                Add Level
-              </Button>
-              <Button variant="secondary" onClick={removeLastLevel} disabled={activeLevelCount <= 1}>
-                Remove Last
-              </Button>
+            {/* Core form */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <label className="flex flex-col gap-1.5">
+                <span className="admin-label">Game ID</span>
+                <input className="admin-input" value={coreForm.gameId}
+                  onChange={(e) => setCoreForm((p) => ({ ...p, gameId: e.target.value }))} />
+              </label>
+              <label className="flex flex-col gap-1.5">
+                <span className="admin-label">Title</span>
+                <input className="admin-input" value={coreForm.title}
+                  onChange={(e) => setCoreForm((p) => ({ ...p, title: e.target.value }))} />
+              </label>
+              <label className="flex flex-col gap-1.5 sm:col-span-2">
+                <span className="admin-label">Description</span>
+                <textarea className="admin-input" value={coreForm.description}
+                  onChange={(e) => setCoreForm((p) => ({ ...p, description: e.target.value }))} />
+              </label>
+              <label className="flex flex-col gap-1.5">
+                <span className="admin-label">Game Type</span>
+                <select className="admin-input" value={coreForm.gameType}
+                  onChange={(e) => setCoreForm((p) => ({ ...p, gameType: e.target.value as GameType }))}>
+                  <option value="MCQ">Quiz (MCQ)</option>
+                  <option value="WORD">Word Builder</option>
+                  <option value="GRID">Number Grid Puzzle</option>
+                  <option value="DRAG_DROP">Drag and Drop Match</option>
+                  <option value="BOARD">Maze / Board Runner</option>
+                </select>
+              </label>
+              <label className="flex flex-col gap-1.5">
+                <span className="admin-label">Difficulty</span>
+                <select className="admin-input" value={coreForm.difficulty}
+                  onChange={(e) => setCoreForm((p) => ({ ...p, difficulty: e.target.value as Difficulty }))}>
+                  <option value="easy">Easy</option>
+                  <option value="medium">Medium</option>
+                  <option value="hard">Hard</option>
+                </select>
+              </label>
+              <label className="flex flex-col gap-1.5">
+                <span className="admin-label">Version</span>
+                <input className="admin-input" value={coreForm.version}
+                  onChange={(e) => setCoreForm((p) => ({ ...p, version: e.target.value }))} />
+              </label>
+              <label className="flex flex-col gap-1.5">
+                <span className="admin-label">Folder Name (create only)</span>
+                <input className="admin-input" value={coreForm.directoryName} disabled={!isCreateMode}
+                  onChange={(e) => setCoreForm((p) => ({ ...p, directoryName: e.target.value }))} />
+              </label>
+              <label className="flex flex-col gap-1.5">
+                <span className="admin-label">Author</span>
+                <input className="admin-input" value={coreForm.author}
+                  onChange={(e) => setCoreForm((p) => ({ ...p, author: e.target.value }))} />
+              </label>
+              <label className="flex flex-col gap-1.5">
+                <span className="admin-label">Target Skill</span>
+                <input className="admin-input" value={coreForm.targetSkill}
+                  onChange={(e) => setCoreForm((p) => ({ ...p, targetSkill: e.target.value }))} />
+              </label>
+              <label className="flex flex-col gap-1.5 sm:col-span-2">
+                <span className="admin-label">Tags (comma separated)</span>
+                <input className="admin-input" value={coreForm.tagsText}
+                  onChange={(e) => setCoreForm((p) => ({ ...p, tagsText: e.target.value }))} />
+              </label>
+              <label className="flex flex-col gap-1.5">
+                <span className="admin-label">Estimated Play Time (min)</span>
+                <input type="number" className="admin-input" value={coreForm.estimatedPlayTime}
+                  onChange={(e) => setCoreForm((p) => ({ ...p, estimatedPlayTime: Number(e.target.value) || 1 }))} />
+              </label>
+              <label className="flex flex-col gap-1.5">
+                <span className="admin-label">Timer Type</span>
+                <select className="admin-input" value={coreForm.timerType}
+                  onChange={(e) => setCoreForm((p) => ({ ...p, timerType: e.target.value as "countdown" | "countup" }))}>
+                  <option value="countdown">Countdown</option>
+                  <option value="countup">Count Up</option>
+                </select>
+              </label>
+              <label className="flex flex-col gap-1.5">
+                <span className="admin-label">Timer Duration (sec)</span>
+                <input type="number" className="admin-input" value={coreForm.timerDuration}
+                  onChange={(e) => setCoreForm((p) => ({ ...p, timerDuration: Number(e.target.value) || 10 }))} />
+              </label>
+              <label className="flex flex-col gap-1.5">
+                <span className="admin-label">Warning At (comma separated)</span>
+                <input className="admin-input" value={coreForm.warningAtText}
+                  onChange={(e) => setCoreForm((p) => ({ ...p, warningAtText: e.target.value }))} />
+              </label>
+              <label className="flex flex-col gap-1.5">
+                <span className="admin-label">Base Points</span>
+                <input type="number" className="admin-input" value={coreForm.basePoints}
+                  onChange={(e) => setCoreForm((p) => ({ ...p, basePoints: Number(e.target.value) || 1 }))} />
+              </label>
+              <label className="flex flex-col gap-1.5">
+                <span className="admin-label">Level Bonus Multiplier</span>
+                <input type="number" className="admin-input" value={coreForm.bonusMultiplier}
+                  onChange={(e) => setCoreForm((p) => ({ ...p, bonusMultiplier: Number(e.target.value) || 1 }))} />
+              </label>
+              <label className="flex flex-col gap-1.5">
+                <span className="admin-label">Penalty Per Hint</span>
+                <input type="number" className="admin-input" value={coreForm.penaltyPerHint}
+                  onChange={(e) => setCoreForm((p) => ({ ...p, penaltyPerHint: Number(e.target.value) || 0 }))} />
+              </label>
+              <label className="flex flex-col gap-1.5">
+                <span className="admin-label">Penalty Per Wrong</span>
+                <input type="number" className="admin-input" value={coreForm.penaltyPerWrong}
+                  onChange={(e) => setCoreForm((p) => ({ ...p, penaltyPerWrong: Number(e.target.value) || 0 }))} />
+              </label>
+              <label className="flex flex-col gap-1.5">
+                <span className="admin-label">Time Bonus Formula</span>
+                <select className="admin-input" value={coreForm.timeBonusFormula}
+                  onChange={(e) => setCoreForm((p) => ({ ...p, timeBonusFormula: e.target.value as "none" | "linear" | "exponential" }))}>
+                  <option value="none">None</option>
+                  <option value="linear">Linear</option>
+                  <option value="exponential">Exponential</option>
+                </select>
+              </label>
+              <label className="flex flex-col gap-1.5">
+                <span className="admin-label">Time Bonus Multiplier</span>
+                <input type="number" className="admin-input" value={coreForm.timeBonusMultiplier}
+                  onChange={(e) => setCoreForm((p) => ({ ...p, timeBonusMultiplier: Number(e.target.value) || 0 }))} />
+              </label>
             </div>
           </div>
 
-          {coreForm.gameType === "MCQ"
-            ? mcqLevels.map((level, levelIndex) => (
-                <div key={levelIndex} className="admin-form-grid admin-level-entry">
-                  <h5 className="admin-field-span-2">Level {levelIndex + 1}</h5>
-                  <label className="admin-label">
-                    Options Count
-                    <select
-                      className="admin-input"
-                      value={level.optionCount}
-                      onChange={(event) =>
-                        setMcqLevels((prev) =>
-                          assignLevelNumbers(
-                            prev.map((item, index) =>
-                              index === levelIndex
-                                ? { ...item, optionCount: Number(event.target.value) as 2 | 3 | 4 }
-                                : item,
-                            ),
-                          ),
-                        )
-                      }
-                    >
-                      <option value={2}>2</option>
-                      <option value={3}>3</option>
-                      <option value={4}>4</option>
-                    </select>
-                  </label>
-                  <label className="admin-label admin-field-span-2">
-                    Question
-                    <input
-                      className="admin-input"
-                      value={level.question}
-                      onChange={(event) =>
-                        setMcqLevels((prev) =>
-                          assignLevelNumbers(
-                            prev.map((item, index) =>
-                              index === levelIndex ? { ...item, question: event.target.value } : item,
-                            ),
-                          ),
-                        )
-                      }
-                    />
-                  </label>
-                  <label className="admin-label">
-                    Option A
-                    <input
-                      className="admin-input"
-                      value={level.optionA}
-                      onChange={(event) =>
-                        setMcqLevels((prev) =>
-                          assignLevelNumbers(
-                            prev.map((item, index) =>
-                              index === levelIndex ? { ...item, optionA: event.target.value } : item,
-                            ),
-                          ),
-                        )
-                      }
-                    />
-                  </label>
-                  <label className="admin-label">
-                    Option B
-                    <input
-                      className="admin-input"
-                      value={level.optionB}
-                      onChange={(event) =>
-                        setMcqLevels((prev) =>
-                          assignLevelNumbers(
-                            prev.map((item, index) =>
-                              index === levelIndex ? { ...item, optionB: event.target.value } : item,
-                            ),
-                          ),
-                        )
-                      }
-                    />
-                  </label>
-                  {level.optionCount >= 3 ? (
-                    <label className="admin-label">
-                      Option C
-                      <input
-                        className="admin-input"
-                        value={level.optionC}
-                        onChange={(event) =>
-                          setMcqLevels((prev) =>
-                            assignLevelNumbers(
-                              prev.map((item, index) =>
-                                index === levelIndex ? { ...item, optionC: event.target.value } : item,
-                              ),
-                            ),
-                          )
-                        }
-                      />
-                    </label>
-                  ) : null}
-                  {level.optionCount >= 4 ? (
-                    <label className="admin-label">
-                      Option D
-                      <input
-                        className="admin-input"
-                        value={level.optionD}
-                        onChange={(event) =>
-                          setMcqLevels((prev) =>
-                            assignLevelNumbers(
-                              prev.map((item, index) =>
-                                index === levelIndex ? { ...item, optionD: event.target.value } : item,
-                              ),
-                            ),
-                          )
-                        }
-                      />
-                    </label>
-                  ) : null}
-                  <label className="admin-label">
-                    Correct Option
-                    <select
-                      className="admin-input"
-                      value={level.correctOptionId}
-                      onChange={(event) =>
-                        setMcqLevels((prev) =>
-                          assignLevelNumbers(
-                            prev.map((item, index) =>
-                              index === levelIndex
-                                ? { ...item, correctOptionId: event.target.value as "A" | "B" }
-                                : item,
-                            ),
-                          ),
-                        )
-                      }
-                    >
-                      <option value="A">A</option>
-                      <option value="B">B</option>
-                      {level.optionCount >= 3 ? <option value="C">C</option> : null}
-                      {level.optionCount >= 4 ? <option value="D">D</option> : null}
-                    </select>
-                  </label>
+          {/* Level editor */}
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-card p-6">
+            <div className="flex items-center justify-between gap-3 mb-5 flex-wrap">
+              <div>
+                <h3 className="font-display font-bold text-ink">
+                  {coreForm.gameType} Levels
+                </h3>
+                <p className="text-xs text-ink-muted mt-0.5">{activeLevelCount} level(s)</p>
+              </div>
+              <div className="flex gap-2">
+                <Button variant="secondary" size="sm" onClick={addLevel}>+ Add Level</Button>
+                <Button variant="secondary" size="sm" onClick={removeLastLevel} disabled={activeLevelCount <= 1}>
+                  Remove Last
+                </Button>
+              </div>
+            </div>
+
+            <div className="space-y-5">
+              {coreForm.gameType === "MCQ"
+                ? mcqLevels.map((level, levelIndex) => (
+                    <div key={levelIndex} className="border border-gray-100 rounded-xl p-4 space-y-3 bg-gray-50/50">
+                      <h5 className="text-xs font-bold uppercase tracking-widest text-ink-faint">Level {levelIndex + 1}</h5>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <label className="flex flex-col gap-1.5">
+                          <span className="admin-label">Options Count</span>
+                          <select className="admin-input" value={level.optionCount}
+                            onChange={(e) => setMcqLevels((prev) => assignLevelNumbers(prev.map((item, index) => index === levelIndex ? { ...item, optionCount: Number(e.target.value) as 2 | 3 | 4 } : item)))}>
+                            <option value={2}>2</option><option value={3}>3</option><option value={4}>4</option>
+                          </select>
+                        </label>
+                        <label className="flex flex-col gap-1.5 sm:col-span-2">
+                          <span className="admin-label">Question</span>
+                          <input className="admin-input" value={level.question}
+                            onChange={(e) => setMcqLevels((prev) => assignLevelNumbers(prev.map((item, index) => index === levelIndex ? { ...item, question: e.target.value } : item)))} />
+                        </label>
+                        <label className="flex flex-col gap-1.5">
+                          <span className="admin-label">Option A</span>
+                          <input className="admin-input" value={level.optionA}
+                            onChange={(e) => setMcqLevels((prev) => assignLevelNumbers(prev.map((item, index) => index === levelIndex ? { ...item, optionA: e.target.value } : item)))} />
+                        </label>
+                        <label className="flex flex-col gap-1.5">
+                          <span className="admin-label">Option B</span>
+                          <input className="admin-input" value={level.optionB}
+                            onChange={(e) => setMcqLevels((prev) => assignLevelNumbers(prev.map((item, index) => index === levelIndex ? { ...item, optionB: e.target.value } : item)))} />
+                        </label>
+                        {level.optionCount >= 3 ? (
+                          <label className="flex flex-col gap-1.5">
+                            <span className="admin-label">Option C</span>
+                            <input className="admin-input" value={level.optionC}
+                              onChange={(e) => setMcqLevels((prev) => assignLevelNumbers(prev.map((item, index) => index === levelIndex ? { ...item, optionC: e.target.value } : item)))} />
+                          </label>
+                        ) : null}
+                        {level.optionCount >= 4 ? (
+                          <label className="flex flex-col gap-1.5">
+                            <span className="admin-label">Option D</span>
+                            <input className="admin-input" value={level.optionD}
+                              onChange={(e) => setMcqLevels((prev) => assignLevelNumbers(prev.map((item, index) => index === levelIndex ? { ...item, optionD: e.target.value } : item)))} />
+                          </label>
+                        ) : null}
+                        <label className="flex flex-col gap-1.5">
+                          <span className="admin-label">Correct Option</span>
+                          <select className="admin-input" value={level.correctOptionId}
+                            onChange={(e) => setMcqLevels((prev) => assignLevelNumbers(prev.map((item, index) => index === levelIndex ? { ...item, correctOptionId: e.target.value as "A" | "B" } : item)))}>
+                            <option value="A">A</option>
+                            <option value="B">B</option>
+                            {level.optionCount >= 3 ? <option value="C">C</option> : null}
+                            {level.optionCount >= 4 ? <option value="D">D</option> : null}
+                          </select>
+                        </label>
+                      </div>
+                    </div>
+                  ))
+                : null}
+
+              {coreForm.gameType === "WORD"
+                ? wordLevels.map((level, levelIndex) => (
+                    <div key={levelIndex} className="border border-gray-100 rounded-xl p-4 space-y-3 bg-gray-50/50">
+                      <h5 className="text-xs font-bold uppercase tracking-widest text-ink-faint">Level {levelIndex + 1}</h5>
+                      <div className="grid grid-cols-1 gap-3">
+                        <label className="flex flex-col gap-1.5">
+                          <span className="admin-label">Available Letters (comma separated)</span>
+                          <input className="admin-input" value={level.availableLettersText}
+                            onChange={(e) => setWordLevels((prev) => assignLevelNumbers(prev.map((item, index) => index === levelIndex ? { ...item, availableLettersText: e.target.value } : item)))} />
+                        </label>
+                        <label className="flex flex-col gap-1.5">
+                          <span className="admin-label">Valid Words (comma separated)</span>
+                          <input className="admin-input" value={level.wordsText}
+                            onChange={(e) => setWordLevels((prev) => assignLevelNumbers(prev.map((item, index) => index === levelIndex ? { ...item, wordsText: e.target.value } : item)))} />
+                        </label>
+                      </div>
+                    </div>
+                  ))
+                : null}
+
+              {coreForm.gameType === "GRID"
+                ? gridLevels.map((level, levelIndex) => (
+                    <div key={levelIndex} className="border border-gray-100 rounded-xl p-4 space-y-3 bg-gray-50/50">
+                      <h5 className="text-xs font-bold uppercase tracking-widest text-ink-faint">Level {levelIndex + 1}</h5>
+                      <div className="grid grid-cols-2 gap-3">
+                        <label className="flex flex-col gap-1.5">
+                          <span className="admin-label">Grid Size (2â€“9)</span>
+                          <input type="number" min={2} max={9} className="admin-input" value={level.gridSize}
+                            onChange={(e) => setGridLevels((prev) => assignLevelNumbers(prev.map((item, index) => index === levelIndex ? { ...item, gridSize: Number(e.target.value) || 2 } : item)))} />
+                        </label>
+                        <label className="flex flex-col gap-1.5">
+                          <span className="admin-label">Clues to Reveal</span>
+                          <input type="number" min={1} className="admin-input" value={level.cluesCount}
+                            onChange={(e) => setGridLevels((prev) => assignLevelNumbers(prev.map((item, index) => index === levelIndex ? { ...item, cluesCount: Number(e.target.value) || 1 } : item)))} />
+                        </label>
+                      </div>
+                    </div>
+                  ))
+                : null}
+
+              {coreForm.gameType === "DRAG_DROP"
+                ? dragDropLevels.map((level, levelIndex) => (
+                    <div key={levelIndex} className="border border-gray-100 rounded-xl p-4 space-y-3 bg-gray-50/50">
+                      <h5 className="text-xs font-bold uppercase tracking-widest text-ink-faint">Level {levelIndex + 1}</h5>
+                      <div className="grid grid-cols-1 gap-3">
+                        <label className="flex flex-col gap-1.5">
+                          <span className="admin-label">Items (comma separated)</span>
+                          <input className="admin-input" value={level.itemsText}
+                            onChange={(e) => setDragDropLevels((prev) => assignLevelNumbers(prev.map((item, index) => index === levelIndex ? { ...item, itemsText: e.target.value } : item)))} />
+                        </label>
+                        <label className="flex flex-col gap-1.5">
+                          <span className="admin-label">Targets (comma separated)</span>
+                          <input className="admin-input" value={level.targetsText}
+                            onChange={(e) => setDragDropLevels((prev) => assignLevelNumbers(prev.map((item, index) => index === levelIndex ? { ...item, targetsText: e.target.value } : item)))} />
+                        </label>
+                      </div>
+                    </div>
+                  ))
+                : null}
+
+              {coreForm.gameType === "BOARD"
+                ? boardLevels.map((level, levelIndex) => (
+                    <div key={levelIndex} className="border border-gray-100 rounded-xl p-4 space-y-3 bg-gray-50/50">
+                      <h5 className="text-xs font-bold uppercase tracking-widest text-ink-faint">Level {levelIndex + 1}</h5>
+                      <div className="grid grid-cols-2 gap-3">
+                        <label className="flex flex-col gap-1.5">
+                          <span className="admin-label">Rows (min 3)</span>
+                          <input type="number" min={3} className="admin-input" value={level.rows}
+                            onChange={(e) => setBoardLevels((prev) => assignLevelNumbers(prev.map((item, index) => index === levelIndex ? { ...item, rows: Number(e.target.value) || 3 } : item)))} />
+                        </label>
+                        <label className="flex flex-col gap-1.5">
+                          <span className="admin-label">Columns (min 3)</span>
+                          <input type="number" min={3} className="admin-input" value={level.cols}
+                            onChange={(e) => setBoardLevels((prev) => assignLevelNumbers(prev.map((item, index) => index === levelIndex ? { ...item, cols: Number(e.target.value) || 3 } : item)))} />
+                        </label>
+                        <label className="flex flex-col gap-1.5 col-span-2">
+                          <span className="admin-label">Blockages (#) as row,col;row,col (1-based)</span>
+                          <input className="admin-input" placeholder="2,2;2,3;3,3" value={level.blockagesText}
+                            onChange={(e) => setBoardLevels((prev) => assignLevelNumbers(prev.map((item, index) => index === levelIndex ? { ...item, blockagesText: e.target.value } : item)))} />
+                        </label>
+                        <label className="flex flex-col gap-1.5 col-span-2">
+                          <span className="admin-label">Task Cells (T) as row,col;row,col (1-based)</span>
+                          <input className="admin-input" placeholder="2,4;3,4" value={level.tasksText}
+                            onChange={(e) => setBoardLevels((prev) => assignLevelNumbers(prev.map((item, index) => index === levelIndex ? { ...item, tasksText: e.target.value } : item)))} />
+                        </label>
+                      </div>
+                    </div>
+                  ))
+                : null}
+
+              {coreForm.gameType === "CUSTOM"
+                ? customLevels.map((level, levelIndex) => (
+                    <div key={levelIndex} className="border border-gray-100 rounded-xl p-4 space-y-3 bg-gray-50/50">
+                      <h5 className="text-xs font-bold uppercase tracking-widest text-ink-faint">Level {levelIndex + 1}</h5>
+                      <div className="grid grid-cols-1 gap-3">
+                        <label className="flex flex-col gap-1.5">
+                          <span className="admin-label">Level Name</span>
+                          <input className="admin-input" value={level.levelName}
+                            onChange={(e) => setCustomLevels((prev) => assignLevelNumbers(prev.map((item, index) => index === levelIndex ? { ...item, levelName: e.target.value } : item)))} />
+                        </label>
+                        <label className="flex flex-col gap-1.5">
+                          <span className="admin-label">Objective</span>
+                          <input className="admin-input" value={level.objective}
+                            onChange={(e) => setCustomLevels((prev) => assignLevelNumbers(prev.map((item, index) => index === levelIndex ? { ...item, objective: e.target.value } : item)))} />
+                        </label>
+                        <label className="flex flex-col gap-1.5">
+                          <span className="admin-label">Instruction</span>
+                          <textarea className="admin-input" value={level.instruction}
+                            onChange={(e) => setCustomLevels((prev) => assignLevelNumbers(prev.map((item, index) => index === levelIndex ? { ...item, instruction: e.target.value } : item)))} />
+                        </label>
+                        <label className="flex flex-col gap-1.5">
+                          <span className="admin-label">Success Message</span>
+                          <input className="admin-input" value={level.successText}
+                            onChange={(e) => setCustomLevels((prev) => assignLevelNumbers(prev.map((item, index) => index === levelIndex ? { ...item, successText: e.target.value } : item)))} />
+                        </label>
+                      </div>
+                    </div>
+                  ))
+                : null}
+            </div>
+          </div>
+
+          {/* Config preview */}
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-card p-6">
+            <p className="eyebrow mb-3">Auto-generated Config Preview</p>
+            <pre className="text-xs font-mono bg-gray-50 border border-gray-200 rounded-xl p-4 overflow-auto max-h-72 text-ink-muted">
+              {JSON.stringify(generatedConfig, null, 2)}
+            </pre>
+          </div>
+        </div>
+
+        {/* â”€â”€ Right: Game list + leaderboard â”€â”€ */}
+        <div className="space-y-6">
+          {/* Game table */}
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-card p-6">
+            <h3 className="font-display font-bold text-ink mb-4">ðŸ“‹ All Games</h3>
+            <div className="overflow-x-auto">
+              <table className="admin-table">
+                <thead>
+                  <tr>
+                    <th>Game</th>
+                    <th>Type</th>
+                    <th>Submissions</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(overview?.games ?? []).map((game) => (
+                    <tr key={game.gameId} className={game.gameId === selectedGameId ? "is-selected" : ""}>
+                      <td>
+                        <strong className="text-sm">{game.title}</strong>
+                        <div className="table-subtext">{game.gameId}</div>
+                      </td>
+                      <td>
+                        <span className="game-type-badge">{game.gameType}</span>
+                      </td>
+                      <td className="text-sm">{game.submissions}</td>
+                      <td>
+                        <Button variant="ghost" size="sm" onClick={() => void loadGameIntoBuilder(game.gameId)}>
+                          Edit
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {(overview?.games ?? []).length === 0 && (
+                <div className="empty-state py-8">
+                  <p className="text-sm">No games yet. Create one!</p>
                 </div>
-              ))
-            : null}
+              )}
+            </div>
+          </div>
 
-          {coreForm.gameType === "WORD"
-            ? wordLevels.map((level, levelIndex) => (
-                <div key={levelIndex} className="admin-form-grid admin-level-entry">
-                  <h5 className="admin-field-span-2">Level {levelIndex + 1}</h5>
-                  <label className="admin-label admin-field-span-2">
-                    Available Letters (comma separated)
-                    <input
-                      className="admin-input"
-                      value={level.availableLettersText}
-                      onChange={(event) =>
-                        setWordLevels((prev) =>
-                          assignLevelNumbers(
-                            prev.map((item, index) =>
-                              index === levelIndex ? { ...item, availableLettersText: event.target.value } : item,
-                            ),
-                          ),
-                        )
-                      }
-                    />
-                  </label>
-                  <label className="admin-label admin-field-span-2">
-                    Valid Words (comma separated)
-                    <input
-                      className="admin-input"
-                      value={level.wordsText}
-                      onChange={(event) =>
-                        setWordLevels((prev) =>
-                          assignLevelNumbers(
-                            prev.map((item, index) =>
-                              index === levelIndex ? { ...item, wordsText: event.target.value } : item,
-                            ),
-                          ),
-                        )
-                      }
-                    />
-                  </label>
-                </div>
-              ))
-            : null}
-
-          {coreForm.gameType === "GRID"
-            ? gridLevels.map((level, levelIndex) => (
-                <div key={levelIndex} className="admin-form-grid admin-level-entry">
-                  <h5 className="admin-field-span-2">Level {levelIndex + 1}</h5>
-                  <label className="admin-label">
-                    Grid Size
-                    <input
-                      type="number"
-                      min={2}
-                      max={9}
-                      className="admin-input"
-                      value={level.gridSize}
-                      onChange={(event) =>
-                        setGridLevels((prev) =>
-                          assignLevelNumbers(
-                            prev.map((item, index) =>
-                              index === levelIndex ? { ...item, gridSize: Number(event.target.value) || 2 } : item,
-                            ),
-                          ),
-                        )
-                      }
-                    />
-                  </label>
-                  <label className="admin-label">
-                    Clues To Reveal
-                    <input
-                      type="number"
-                      min={1}
-                      className="admin-input"
-                      value={level.cluesCount}
-                      onChange={(event) =>
-                        setGridLevels((prev) =>
-                          assignLevelNumbers(
-                            prev.map((item, index) =>
-                              index === levelIndex ? { ...item, cluesCount: Number(event.target.value) || 1 } : item,
-                            ),
-                          ),
-                        )
-                      }
-                    />
-                  </label>
-                </div>
-              ))
-            : null}
-
-          {coreForm.gameType === "DRAG_DROP"
-            ? dragDropLevels.map((level, levelIndex) => (
-                <div key={levelIndex} className="admin-form-grid admin-level-entry">
-                  <h5 className="admin-field-span-2">Level {levelIndex + 1}</h5>
-                  <label className="admin-label admin-field-span-2">
-                    Items (comma separated)
-                    <input
-                      className="admin-input"
-                      value={level.itemsText}
-                      onChange={(event) =>
-                        setDragDropLevels((prev) =>
-                          assignLevelNumbers(
-                            prev.map((item, index) =>
-                              index === levelIndex ? { ...item, itemsText: event.target.value } : item,
-                            ),
-                          ),
-                        )
-                      }
-                    />
-                  </label>
-                  <label className="admin-label admin-field-span-2">
-                    Targets (comma separated)
-                    <input
-                      className="admin-input"
-                      value={level.targetsText}
-                      onChange={(event) =>
-                        setDragDropLevels((prev) =>
-                          assignLevelNumbers(
-                            prev.map((item, index) =>
-                              index === levelIndex ? { ...item, targetsText: event.target.value } : item,
-                            ),
-                          ),
-                        )
-                      }
-                    />
-                  </label>
-                </div>
-              ))
-            : null}
-
-          {coreForm.gameType === "BOARD"
-            ? boardLevels.map((level, levelIndex) => (
-                <div key={levelIndex} className="admin-form-grid admin-level-entry">
-                  <h5 className="admin-field-span-2">Level {levelIndex + 1}</h5>
-                  <label className="admin-label">
-                    Rows
-                    <input
-                      type="number"
-                      min={3}
-                      className="admin-input"
-                      value={level.rows}
-                      onChange={(event) =>
-                        setBoardLevels((prev) =>
-                          assignLevelNumbers(
-                            prev.map((item, index) =>
-                              index === levelIndex ? { ...item, rows: Number(event.target.value) || 3 } : item,
-                            ),
-                          ),
-                        )
-                      }
-                    />
-                  </label>
-                  <label className="admin-label">
-                    Columns
-                    <input
-                      type="number"
-                      min={3}
-                      className="admin-input"
-                      value={level.cols}
-                      onChange={(event) =>
-                        setBoardLevels((prev) =>
-                          assignLevelNumbers(
-                            prev.map((item, index) =>
-                              index === levelIndex ? { ...item, cols: Number(event.target.value) || 3 } : item,
-                            ),
-                          ),
-                        )
-                      }
-                    />
-                  </label>
-                  <label className="admin-label admin-field-span-2">
-                    Blockages (#) as row,col;row,col (1-based)
-                    <input
-                      className="admin-input"
-                      placeholder="2,2;2,3;3,3"
-                      value={level.blockagesText}
-                      onChange={(event) =>
-                        setBoardLevels((prev) =>
-                          assignLevelNumbers(
-                            prev.map((item, index) =>
-                              index === levelIndex ? { ...item, blockagesText: event.target.value } : item,
-                            ),
-                          ),
-                        )
-                      }
-                    />
-                  </label>
-                  <label className="admin-label admin-field-span-2">
-                    Task Cells (T) as row,col;row,col (1-based)
-                    <input
-                      className="admin-input"
-                      placeholder="2,4;3,4"
-                      value={level.tasksText}
-                      onChange={(event) =>
-                        setBoardLevels((prev) =>
-                          assignLevelNumbers(
-                            prev.map((item, index) =>
-                              index === levelIndex ? { ...item, tasksText: event.target.value } : item,
-                            ),
-                          ),
-                        )
-                      }
-                    />
-                  </label>
-                </div>
-              ))
-            : null}
-
-          {coreForm.gameType === "CUSTOM"
-            ? customLevels.map((level, levelIndex) => (
-                <div key={levelIndex} className="admin-form-grid admin-level-entry">
-                  <h5 className="admin-field-span-2">Level {levelIndex + 1}</h5>
-                  <label className="admin-label">
-                    Level Name
-                    <input
-                      className="admin-input"
-                      value={level.levelName}
-                      onChange={(event) =>
-                        setCustomLevels((prev) =>
-                          assignLevelNumbers(
-                            prev.map((item, index) =>
-                              index === levelIndex ? { ...item, levelName: event.target.value } : item,
-                            ),
-                          ),
-                        )
-                      }
-                    />
-                  </label>
-                  <label className="admin-label admin-field-span-2">
-                    Objective
-                    <input
-                      className="admin-input"
-                      value={level.objective}
-                      onChange={(event) =>
-                        setCustomLevels((prev) =>
-                          assignLevelNumbers(
-                            prev.map((item, index) =>
-                              index === levelIndex ? { ...item, objective: event.target.value } : item,
-                            ),
-                          ),
-                        )
-                      }
-                    />
-                  </label>
-                  <label className="admin-label admin-field-span-2">
-                    Instruction
-                    <textarea
-                      className="admin-input"
-                      value={level.instruction}
-                      onChange={(event) =>
-                        setCustomLevels((prev) =>
-                          assignLevelNumbers(
-                            prev.map((item, index) =>
-                              index === levelIndex ? { ...item, instruction: event.target.value } : item,
-                            ),
-                          ),
-                        )
-                      }
-                    />
-                  </label>
-                  <label className="admin-label admin-field-span-2">
-                    Success Message
-                    <input
-                      className="admin-input"
-                      value={level.successText}
-                      onChange={(event) =>
-                        setCustomLevels((prev) =>
-                          assignLevelNumbers(
-                            prev.map((item, index) =>
-                              index === levelIndex ? { ...item, successText: event.target.value } : item,
-                            ),
-                          ),
-                        )
-                      }
-                    />
-                  </label>
-                </div>
-              ))
-            : null}
-        </section>
-
-        <section className="admin-preview-block">
-          <p className="eyebrow">Auto-generated Config Preview</p>
-          <pre className="admin-preview">{JSON.stringify(generatedConfig, null, 2)}</pre>
-        </section>
-
-        {error ? <p className="admin-status admin-status-error">{error}</p> : null}
-        {notice ? <p className="admin-status admin-status-success">{notice}</p> : null}
-      </article>
-
-      <article className="admin-card admin-leaderboard-card">
-        <p className="eyebrow">Leaderboard Preview</p>
-        <h3>{selectedGame?.title ?? "Select a game from the table"}</h3>
-
-        {selectedGame?.leaderboardPreview.length ? (
-          <ol className="admin-leaderboard-list">
-            {selectedGame.leaderboardPreview.map((entry) => (
-              <li key={`${entry.userId}-${entry.rank}`}>
-                <span>
-                  #{entry.rank} {entry.displayName}
-                </span>
-                <strong>{entry.score}</strong>
-              </li>
-            ))}
-          </ol>
-        ) : (
-          <p>No leaderboard entries available for this game yet.</p>
-        )}
-      </article>
-    </section>
+          {/* Leaderboard preview */}
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-card p-6">
+            <p className="eyebrow mb-1">Leaderboard Preview</p>
+            <h3 className="font-display font-semibold text-ink mb-4">
+              {selectedGame?.title ?? "Select a game"}
+            </h3>
+            {selectedGame?.leaderboardPreview.length ? (
+              <ol className="space-y-2">
+                {selectedGame.leaderboardPreview.map((entry) => (
+                  <li key={`${entry.userId}-${entry.rank}`} className="flex items-center justify-between px-3 py-2 rounded-xl border border-gray-100 text-sm">
+                    <span className="font-medium text-ink">
+                      #{entry.rank} {entry.displayName}
+                    </span>
+                    <strong className="text-teal-700 tabular-nums">{entry.score}</strong>
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <p className="text-sm text-ink-muted">No leaderboard entries for this game.</p>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }

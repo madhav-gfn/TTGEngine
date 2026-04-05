@@ -1,23 +1,37 @@
 import { useGameStore } from "@/store/gameStore";
 import { useScore } from "@/hooks/useScore";
 
-export function ScoreDisplay() {
+interface ScoreDisplayProps {
+  /** When true, renders compact HUD pills instead of full cards */
+  compact?: boolean;
+}
+
+export function ScoreDisplay({ compact = false }: ScoreDisplayProps) {
   const score = useScore();
-  const loopFrame = useGameStore((state) => state.loopFrame);
+  const loopFrame = useGameStore((s) => s.loopFrame);
+
+  if (compact) {
+    return (
+      <div className="hud-pill">
+        <span className="hud-label">Score</span>
+        <span className="hud-value tabular-nums">{score.totalScore.toLocaleString()}</span>
+      </div>
+    );
+  }
 
   return (
-    <div className="hud-grid">
-      <div className="hud-card">
+    <div className="flex gap-2">
+      <div className="hud-pill">
         <span className="hud-label">Score</span>
-        <strong>{score.totalScore}</strong>
+        <span className="hud-value tabular-nums">{score.totalScore.toLocaleString()}</span>
       </div>
-      <div className="hud-card">
+      <div className="hud-pill">
         <span className="hud-label">Accuracy</span>
-        <strong>{Math.round(score.accuracy * 100)}%</strong>
+        <span className="hud-value">{Math.round(score.accuracy * 100)}%</span>
       </div>
-      <div className="hud-card">
-        <span className="hud-label">Loop Frame</span>
-        <strong>{loopFrame}</strong>
+      <div className="hud-pill hidden xl:flex">
+        <span className="hud-label">Frame</span>
+        <span className="hud-value tabular-nums">{loopFrame}</span>
       </div>
     </div>
   );
