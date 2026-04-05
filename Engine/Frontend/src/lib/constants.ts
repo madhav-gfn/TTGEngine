@@ -38,16 +38,26 @@ export function resolveApiBaseUrl(
 const API_BASE_URL = resolveApiBaseUrl(import.meta.env.VITE_API_BASE_URL);
 export const ADMIN_API_KEY = (import.meta.env.VITE_ADMIN_KEY ?? "").trim();
 
-function buildApiEndpoint(pathname: string): string {
-  return API_BASE_URL ? `${API_BASE_URL}${pathname}` : pathname;
+export function resolveApiEndpoint(pathOrUrl: string, apiBaseUrl = API_BASE_URL): string {
+  const trimmed = pathOrUrl.trim();
+  if (!trimmed) {
+    return apiBaseUrl;
+  }
+
+  if (/^https?:\/\//i.test(trimmed)) {
+    return trimmed.replace(/\/+$/, "");
+  }
+
+  const normalizedPath = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+  return apiBaseUrl ? `${apiBaseUrl}${normalizedPath}` : normalizedPath;
 }
 
 export const API_ENDPOINTS = {
-  health: buildApiEndpoint("/api/health"),
-  games: buildApiEndpoint("/api/games"),
-  score: buildApiEndpoint("/api/score"),
-  leaderboard: buildApiEndpoint("/api/leaderboard"),
-  admin: buildApiEndpoint("/api/admin"),
+  health: resolveApiEndpoint("/api/health"),
+  games: resolveApiEndpoint("/api/games"),
+  score: resolveApiEndpoint("/api/score"),
+  leaderboard: resolveApiEndpoint("/api/leaderboard"),
+  admin: resolveApiEndpoint("/api/admin"),
 } as const;
 
 export const STORAGE_KEYS = {

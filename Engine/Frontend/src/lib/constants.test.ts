@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveApiBaseUrl } from "./constants";
+import { resolveApiBaseUrl, resolveApiEndpoint } from "./constants";
 
 describe("resolveApiBaseUrl", () => {
   it("uses a real configured backend URL when one is provided", () => {
@@ -31,5 +31,19 @@ describe("resolveApiBaseUrl", () => {
         protocol: "https:",
       }),
     ).toBe("");
+  });
+});
+
+describe("resolveApiEndpoint", () => {
+  it("maps relative API paths to the local backend when running on localhost", () => {
+    expect(resolveApiEndpoint("/api/leaderboard/maze-runner-v2", "http://localhost:8787")).toBe(
+      "http://localhost:8787/api/leaderboard/maze-runner-v2",
+    );
+  });
+
+  it("leaves absolute API URLs untouched", () => {
+    expect(resolveApiEndpoint("https://api.example.com/api/score")).toBe(
+      "https://api.example.com/api/score",
+    );
   });
 });

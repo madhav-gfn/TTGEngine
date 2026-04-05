@@ -1,5 +1,5 @@
 import { ApiError, getJson, postJson } from "@/lib/api";
-import { API_ENDPOINTS, STORAGE_KEYS } from "@/lib/constants";
+import { API_ENDPOINTS, STORAGE_KEYS, resolveApiEndpoint } from "@/lib/constants";
 import type {
   GameConfig,
   LeaderboardEntry,
@@ -11,11 +11,15 @@ import type {
 } from "./types";
 
 function buildLeaderboardEndpoint(gameId: string, config?: Pick<GameConfig, "apiConfig">): string {
-  return config?.apiConfig?.leaderboardEndpoint ?? `${API_ENDPOINTS.leaderboard}/${gameId}`;
+  return config?.apiConfig?.leaderboardEndpoint
+    ? resolveApiEndpoint(config.apiConfig.leaderboardEndpoint)
+    : `${API_ENDPOINTS.leaderboard}/${gameId}`;
 }
 
 function buildScoreEndpoint(config?: Pick<GameConfig, "apiConfig">): string {
-  return config?.apiConfig?.scoreSubmitEndpoint ?? API_ENDPOINTS.score;
+  return config?.apiConfig?.scoreSubmitEndpoint
+    ? resolveApiEndpoint(config.apiConfig.scoreSubmitEndpoint)
+    : API_ENDPOINTS.score;
 }
 
 interface PendingSubmission {
