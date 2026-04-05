@@ -10,14 +10,24 @@ const localGameModules = import.meta.glob("../../../../Games/*/config.json", {
 
 export class ConfigLoader {
   private localConfigsCache: Map<string, GameConfig> | null = null;
+  private fetchedConfigsCache = new Map<string, GameConfig>();
 
   async load(source: string | URL): Promise<GameConfig> {
+    const cacheKey = source.toString();
+    const cached = this.fetchedConfigsCache.get(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
     try {
       const raw = await getJson<unknown>(source.toString());
-      return this.parseOrThrow(raw);
+      const parsed = this.parseOrThrow(raw);
+      this.fetchedConfigsCache.set(cacheKey, parsed);
+      return parsed;
     } catch (error) {
       const fallback = this.tryLoadLocalBySource(source.toString());
       if (fallback) {
+        this.fetchedConfigsCache.set(cacheKey, fallback);
         return fallback;
       }
 

@@ -8,7 +8,6 @@ import { timerEngine } from "@/core/TimerEngine";
 import { adaptiveEngine } from "@/core/AdaptiveEngine";
 import type { EngineError, GameAction, GameConfig, GameState, LeaderboardQuery, LevelResult } from "@/core/types";
 import { EMPTY_TIMER_TICK } from "@/lib/constants";
-import { generateGameVariant } from "@/lib/gameVariants";
 import {
   getOrCreateUserId,
 } from "@/lib/utils";
@@ -188,9 +187,7 @@ export function useGameLifecycle() {
         throw new Error(`Game '${gameId}' could not be found.`);
       }
 
-      const config = discoveredConfig.aiConfig?.enabled
-        ? await generateGameVariant(discoveredConfig.gameId, { band: "standard" }).catch(() => discoveredConfig)
-        : discoveredConfig;
+      const config = discoveredConfig;
 
       adaptiveEngine.initialize(config);
       store.setActiveGame(gameId, config);
