@@ -29,7 +29,7 @@ function tileLabel(tile: string): string {
   return "Path";
 }
 
-export function BoardRenderer({ config, level, levelIndex, onAction, onComplete, isPaused }: GameRendererProps) {
+export function BoardRenderer({ config, level, levelIndex, runtime, onAction, onComplete, isPaused }: GameRendererProps) {
   const boardLevel = level as BoardLevelConfig;
   const [session, setSession] = useState<BoardSession>(() =>
     boardEngine.createSession({
@@ -41,6 +41,8 @@ export function BoardRenderer({ config, level, levelIndex, onAction, onComplete,
   const tasks = getBoardTaskPositions(boardLevel);
   const goal = getBoardGoal(boardLevel);
   const start = getBoardStart(boardLevel);
+  const smartboardEnabled = config.uiConfig.smartboard?.enabled;
+  const autoScaleBoard = config.uiConfig.smartboard?.autoScaleBoard;
 
   useEffect(() => {
     setSession(boardEngine.createSession({
@@ -92,18 +94,23 @@ export function BoardRenderer({ config, level, levelIndex, onAction, onComplete,
           Tasks {session.collectedTaskIds.length}/{tasks.length}
         </span>
       </div>
+      {runtime ? <p className="status-line">{runtime.summary}</p> : null}
       <p className="status-line">{status}</p>
       <div
-        className="board-grid"
-        style={{ gridTemplateColumns: `repeat(${boardLevel.board[0]?.length ?? 1}, minmax(0, 1fr))` }}
+        className={`board-grid ${smartboardEnabled ? "board-grid-smartboard" : ""}`}
+        style={{
+          gridTemplateColumns: `repeat(${boardLevel.board[0]?.length ?? 1}, minmax(0, 1fr))`,
+          gridAutoRows: autoScaleBoard ? "minmax(clamp(3.25rem, 8vmin, 5.5rem), 1fr)" : undefined,
+        }}
       >
         {boardLevel.board.flatMap((row, rowIndex) =>
           row.split("").map((tile, colIndex) => {
             const isPlayer = session.row === rowIndex && session.col === colIndex;
+            const isEnemy = session.enemies.some((enemy) => enemy.row === rowIndex && enemy.col === colIndex);
             const isGoal = goal.row === rowIndex && goal.col === colIndex;
             const task = tasks.find((entry) => entry.row === rowIndex && entry.col === colIndex);
             const collected = task ? session.collectedTaskIds.includes(task.id) : false;
-            const tileDisplay = isPlayer ? "P" : collected ? "." : task ? "T" : tile === "." ? "" : tile;
+            const tileDisplay = isPlayer ? "P" : isEnemy ? "E" : collected ? "." : task ? "T" : tile === "." ? "" : tile;
             const tileKind = task ? "T" : tile;
             return (
               <div
@@ -113,7 +120,9 @@ export function BoardRenderer({ config, level, levelIndex, onAction, onComplete,
                   tile === "#" ? "is-wall" : "",
                   isGoal ? "is-goal" : "",
                   isPlayer ? "is-player" : "",
+                  isEnemy ? "is-enemy" : "",
                   collected ? "is-cleared" : "",
+                  smartboardEnabled ? "is-smartboard" : "",
                 ].join(" ").trim()}
                 aria-label={`${tileLabel(tileKind)} at row ${rowIndex + 1}, column ${colIndex + 1}`}
               >
@@ -126,8 +135,10 @@ export function BoardRenderer({ config, level, levelIndex, onAction, onComplete,
       <div className="board-meta">
         <span className="tag-chip">Start {start.row + 1},{start.col + 1}</span>
         <span className="tag-chip">Goal {goal.row + 1},{goal.col + 1}</span>
+        <span className="tag-chip">Enemies {session.enemies.length}</span>
+        <span className="tag-chip">Hits {session.collisions}</span>
       </div>
-      <div className="board-controls">
+      <div className={`board-controls ${config.uiConfig.smartboard?.emphasizeControls ? "board-controls-smartboard" : ""}`}>
         <button className="button button-secondary" type="button" onClick={() => dispatchCommand({ type: "move", direction: "up" })}>
           Up
         </button>

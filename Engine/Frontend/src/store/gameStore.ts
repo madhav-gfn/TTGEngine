@@ -1,5 +1,8 @@
 import { create } from "zustand";
 import type {
+  AdaptiveBand,
+  AdaptiveInsight,
+  AdaptiveLevelRuntime,
   BackendStatus,
   ConfigError,
   EngineError,
@@ -8,6 +11,7 @@ import type {
   GameState,
   GameSummary,
   LeaderboardEntry,
+  LevelConfig,
   LevelScore,
   ScoreState,
   SubmissionResult,
@@ -19,6 +23,10 @@ type GameStoreState = {
   availableGames: GameSummary[];
   activeGameId: string | null;
   activeConfig: GameConfig | null;
+  sessionLevels: LevelConfig[];
+  currentLevelRuntime: AdaptiveLevelRuntime | null;
+  adaptiveInsights: AdaptiveInsight[];
+  currentAdaptiveBand: AdaptiveBand;
   lifecycleState: GameState;
   currentLevelIndex: number;
   timerTick: TimerTick;
@@ -33,6 +41,11 @@ type GameStoreState = {
   loopFrame: number;
   setAvailableGames: (games: GameSummary[]) => void;
   setActiveGame: (gameId: string | null, config: GameConfig | null) => void;
+  setSessionLevels: (levels: LevelConfig[]) => void;
+  setSessionLevelAt: (index: number, level: LevelConfig) => void;
+  setCurrentLevelRuntime: (runtime: AdaptiveLevelRuntime | null) => void;
+  pushAdaptiveInsight: (insight: AdaptiveInsight) => void;
+  setAdaptiveBand: (band: AdaptiveBand) => void;
   setLifecycleState: (state: GameState) => void;
   setCurrentLevelIndex: (index: number) => void;
   setTimerTick: (tick: TimerTick) => void;
@@ -51,6 +64,10 @@ export const useGameStore = create<GameStoreState>((set) => ({
   availableGames: [],
   activeGameId: null,
   activeConfig: null,
+  sessionLevels: [],
+  currentLevelRuntime: null,
+  adaptiveInsights: [],
+  currentAdaptiveBand: "standard",
   lifecycleState: "IDLE",
   currentLevelIndex: 0,
   timerTick: EMPTY_TIMER_TICK,
@@ -71,6 +88,10 @@ export const useGameStore = create<GameStoreState>((set) => ({
     set({
       activeGameId: gameId,
       activeConfig: config,
+      sessionLevels: config?.levels ? [...config.levels] : [],
+      currentLevelRuntime: null,
+      adaptiveInsights: [],
+      currentAdaptiveBand: "standard",
       currentLevelIndex: 0,
       timerTick: EMPTY_TIMER_TICK,
       scoreState: EMPTY_SCORE_STATE,
@@ -82,6 +103,14 @@ export const useGameStore = create<GameStoreState>((set) => ({
       error: null,
       loopFrame: 0,
     }),
+  setSessionLevels: (sessionLevels) => set({ sessionLevels }),
+  setSessionLevelAt: (index, level) =>
+    set((state) => ({
+      sessionLevels: state.sessionLevels.map((entry, entryIndex) => (entryIndex === index ? level : entry)),
+    })),
+  setCurrentLevelRuntime: (currentLevelRuntime) => set({ currentLevelRuntime }),
+  pushAdaptiveInsight: (insight) => set((state) => ({ adaptiveInsights: [...state.adaptiveInsights, insight] })),
+  setAdaptiveBand: (currentAdaptiveBand) => set({ currentAdaptiveBand }),
   setLifecycleState: (state) => set({ lifecycleState: state }),
   setCurrentLevelIndex: (index) => set({ currentLevelIndex: index }),
   setTimerTick: (tick) => set({ timerTick: tick, loopFrame: tick.frame }),
@@ -98,6 +127,10 @@ export const useGameStore = create<GameStoreState>((set) => ({
       ...state,
       activeGameId: null,
       activeConfig: null,
+      sessionLevels: [],
+      currentLevelRuntime: null,
+      adaptiveInsights: [],
+      currentAdaptiveBand: "standard",
       lifecycleState: "IDLE",
       currentLevelIndex: 0,
       timerTick: EMPTY_TIMER_TICK,

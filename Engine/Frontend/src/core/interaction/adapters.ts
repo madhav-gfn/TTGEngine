@@ -1,4 +1,5 @@
 import {
+  type BoardEnemy,
   getBoardGoal,
   getBoardStart,
   getBoardTaskPositions,
@@ -13,6 +14,9 @@ export interface BoardSession extends InteractionSession {
   col: number;
   collectedTaskIds: string[];
   completed: boolean;
+  enemies: Array<BoardEnemy & { directionStep: -1 | 1 }>;
+  moveCount: number;
+  collisions: number;
 }
 
 export interface BoardAdapterContext {
@@ -28,6 +32,61 @@ function isWalkable(level: BoardLevelConfig, row: number, col: number): boolean 
   return level.board[row][col] !== "#";
 }
 
+function isEnemyWalkable(level: BoardLevelConfig, row: number, col: number): boolean {
+  return isWalkable(level, row, col) && level.board[row]?.[col] !== "G" && level.board[row]?.[col] !== "S";
+}
+
+function getEnemyAxisPosition(enemy: BoardEnemy): number {
+  return enemy.movement === "horizontal" ? enemy.col : enemy.row;
+}
+
+function setEnemyAxisPosition(enemy: BoardEnemy, value: number): BoardEnemy {
+  return enemy.movement === "horizontal"
+    ? { ...enemy, col: value }
+    : { ...enemy, row: value };
+}
+
+function moveEnemy(
+  enemy: BoardEnemy & { directionStep: -1 | 1 },
+  level: BoardLevelConfig,
+): BoardEnemy & { directionStep: -1 | 1 } {
+  const currentAxis = getEnemyAxisPosition(enemy);
+  let nextDirection = enemy.directionStep;
+  let nextAxis = currentAxis + nextDirection;
+
+  if (nextAxis < enemy.min || nextAxis > enemy.max) {
+    nextDirection = nextDirection === 1 ? -1 : 1;
+    nextAxis = currentAxis + nextDirection;
+  }
+
+  const candidate = setEnemyAxisPosition(enemy, nextAxis);
+  if (!isEnemyWalkable(level, candidate.row, candidate.col)) {
+    const reversedDirection = nextDirection === 1 ? -1 : 1;
+    const reversedAxis = currentAxis + reversedDirection;
+    const reversedCandidate = setEnemyAxisPosition(enemy, reversedAxis);
+    if (
+      reversedAxis < enemy.min ||
+      reversedAxis > enemy.max ||
+      !isEnemyWalkable(level, reversedCandidate.row, reversedCandidate.col)
+    ) {
+      return {
+        ...enemy,
+        directionStep: reversedDirection,
+      };
+    }
+
+    return {
+      ...reversedCandidate,
+      directionStep: reversedDirection,
+    };
+  }
+
+  return {
+    ...candidate,
+    directionStep: nextDirection,
+  };
+}
+
 export const boardCommandAdapter: CommandAdapter<BoardSession, BoardAdapterContext> = {
   createSession: ({ level }) => {
     const start = getBoardStart(level);
@@ -36,6 +95,12 @@ export const boardCommandAdapter: CommandAdapter<BoardSession, BoardAdapterConte
       col: start.col,
       collectedTaskIds: [],
       completed: false,
+      enemies: (level.enemies ?? []).map((enemy) => ({
+        ...enemy,
+        directionStep: (enemy.direction === "reverse" ? -1 : 1) as -1 | 1,
+      })),
+      moveCount: 0,
+      collisions: 0,
       focusZone: "board",
       focusIndex: 0,
       heldItemId: null,
@@ -65,30 +130,55 @@ export const boardCommandAdapter: CommandAdapter<BoardSession, BoardAdapterConte
     }
 
     const tasks = getBoardTaskPositions(context.level);
+    const collidedBeforeEnemyMove = session.enemies.some((enemy) => enemy.row === nextRow && enemy.col === nextCol);
     const nextTask = tasks.find((task) => task.row === nextRow && task.col === nextCol);
     const goal = getBoardGoal(context.level);
     const collectedTaskIds = nextTask && !session.collectedTaskIds.includes(nextTask.id)
       ? [...session.collectedTaskIds, nextTask.id]
       : session.collectedTaskIds;
-    const completed = nextRow === goal.row && nextCol === goal.col && collectedTaskIds.length === tasks.length;
+    const moveCount = session.moveCount + 1;
+    const enemies = session.enemies.map((enemy) => (
+      moveCount % (enemy.speed ?? 1) === 0 ? moveEnemy(enemy, context.level) : enemy
+    ));
+    const collidedAfterEnemyMove = enemies.some((enemy) => enemy.row === nextRow && enemy.col === nextCol);
+    const collided = collidedBeforeEnemyMove || collidedAfterEnemyMove;
+    const start = getBoardStart(context.level);
+    const completed =
+      !collided &&
+      nextRow === goal.row &&
+      nextCol === goal.col &&
+      collectedTaskIds.length === tasks.length;
 
     return {
       session: {
         ...session,
-        row: nextRow,
-        col: nextCol,
+        row: collided ? start.row : nextRow,
+        col: collided ? start.col : nextCol,
         collectedTaskIds,
         completed,
+        enemies,
+        moveCount,
+        collisions: collided ? session.collisions + 1 : session.collisions,
       },
       handled: true,
-      announcement: nextTask && !session.collectedTaskIds.includes(nextTask.id) ? `Collected ${nextTask.label}` : undefined,
-      action: nextTask && !session.collectedTaskIds.includes(nextTask.id)
+      announcement: collided
+        ? "Enemy caught you. Returning to start."
+        : nextTask && !session.collectedTaskIds.includes(nextTask.id)
+          ? `Collected ${nextTask.label}`
+          : undefined,
+      action: collided
         ? {
-          type: "correct",
-          points: context.basePoints,
-          metadata: { taskId: nextTask.id },
+          type: "wrong",
+          points: 0,
+          metadata: { reason: "enemy_collision" },
         }
-        : undefined,
+        : nextTask && !session.collectedTaskIds.includes(nextTask.id)
+          ? {
+            type: "correct",
+            points: context.basePoints,
+            metadata: { taskId: nextTask.id },
+          }
+          : undefined,
       completion: completed
         ? {
           completed: true,

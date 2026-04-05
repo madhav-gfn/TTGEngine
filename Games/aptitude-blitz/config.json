@@ -134,6 +134,26 @@
     "showScore": true,
     "showProgress": true
   },
+  "adaptiveConfig": {
+    "enabled": true,
+    "supportThreshold": 0.6,
+    "challengeThreshold": 0.9,
+    "timerAdjustmentSeconds": 15,
+    "multiplierAdjustment": 0.2,
+    "maxTimerAdjustmentSeconds": 45,
+    "minimumMultiplier": 0.75,
+    "maximumMultiplier": 2,
+    "adaptContent": true,
+    "adaptTimer": true,
+    "adaptScoring": true,
+    "adaptPenalties": true
+  },
+  "aiConfig": {
+    "enabled": true,
+    "provider": "local-template",
+    "fallbackToLocal": true,
+    "seed": "aptitude-blitz-v1"
+  },
   "metadata": {
     "author": "TaPTaP Engine Team",
     "createdAt": "2026-03-07T00:00:00Z",

@@ -1,4 +1,5 @@
 ﻿import { useEffect, useMemo, useState } from "react";
+import type { AdaptiveBand } from "@/core/types";
 import { ApiError } from "@/lib/api";
 import {
   createAdminGame,
@@ -36,6 +37,15 @@ interface CoreFormState {
   penaltyPerWrong: number;
   timeBonusFormula: "none" | "linear" | "exponential";
   timeBonusMultiplier: number;
+  adaptiveEnabled: boolean;
+  adaptiveSupportThreshold: number;
+  adaptiveChallengeThreshold: number;
+  adaptiveTimerAdjustmentSeconds: number;
+  adaptiveMultiplierAdjustment: number;
+  aiEnabled: boolean;
+  aiProvider: "local-template" | "openai-compatible";
+  smartboardEnabled: boolean;
+  smartboardFullscreen: boolean;
 }
 
 interface LevelBase {
@@ -77,6 +87,7 @@ interface BoardLevelForm extends LevelBase {
   cols: number;
   blockagesText: string;
   tasksText: string;
+  enemyPatrolsText: string;
 }
 
 interface CustomLevelForm extends LevelBase {
@@ -84,6 +95,7 @@ interface CustomLevelForm extends LevelBase {
   objective: string;
   instruction: string;
   successText: string;
+  checkpointsText: string;
 }
 
 function splitCsv(value: string): string[] {
@@ -100,6 +112,13 @@ function parseIntegerList(value: string): number[] {
     .map((valueNumber) => Math.round(valueNumber));
 
   return parsed.length > 0 ? parsed : [30, 10, 5];
+}
+
+function splitLineList(value: string): string[] {
+  return value
+    .split(/\r?\n/)
+    .map((token) => token.trim())
+    .filter(Boolean);
 }
 
 function toErrorMessage(error: unknown): string {
@@ -138,6 +157,15 @@ function createDefaultCoreState(): CoreFormState {
     penaltyPerWrong: 0,
     timeBonusFormula: "none",
     timeBonusMultiplier: 1,
+    adaptiveEnabled: false,
+    adaptiveSupportThreshold: 0.5,
+    adaptiveChallengeThreshold: 0.85,
+    adaptiveTimerAdjustmentSeconds: 10,
+    adaptiveMultiplierAdjustment: 0.15,
+    aiEnabled: false,
+    aiProvider: "local-template",
+    smartboardEnabled: false,
+    smartboardFullscreen: true,
   };
 }
 
@@ -188,6 +216,7 @@ function createDefaultBoardLevel(levelNumber: number): BoardLevelForm {
     cols: 5,
     blockagesText: "2,2",
     tasksText: "2,3;3,3",
+    enemyPatrolsText: "",
   };
 }
 
@@ -198,6 +227,7 @@ function createDefaultCustomLevel(levelNumber: number): CustomLevelForm {
     objective: "Complete the objective",
     instruction: "Describe what the player should do in this level.",
     successText: "Great job!",
+    checkpointsText: "Review the objective\nComplete the action\nConfirm the result",
   };
 }
 
@@ -313,6 +343,82 @@ function makeBoardTasks(
     }));
 }
 
+function parseEnemyPatrols(
+  raw: string,
+  rows: number,
+  cols: number,
+): Array<{
+  id: string;
+  row: number;
+  col: number;
+  movement: "horizontal" | "vertical";
+  min: number;
+  max: number;
+  speed: number;
+  direction: "forward";
+}> {
+  const safeRows = Math.max(3, rows);
+  const safeCols = Math.max(3, cols);
+  return raw
+    .split(/[;\n]/)
+    .map((token) => token.trim())
+    .filter(Boolean)
+    .map((token, index) => {
+      const [rowRaw, colRaw, movementRaw, minRaw, maxRaw, speedRaw] = token.split(",").map((value) => value.trim());
+      const movement = movementRaw === "vertical" ? "vertical" : "horizontal";
+      const row = Math.max(0, Math.min(safeRows - 1, (Number(rowRaw) || 1) - 1));
+      const col = Math.max(0, Math.min(safeCols - 1, (Number(colRaw) || 1) - 1));
+      const min = Math.max(0, (Number(minRaw) || 1) - 1);
+      const max = movement === "horizontal"
+        ? Math.min(safeCols - 1, (Number(maxRaw) || safeCols) - 1)
+        : Math.min(safeRows - 1, (Number(maxRaw) || safeRows) - 1);
+
+      return {
+        id: `enemy-${index + 1}`,
+        row,
+        col,
+        movement,
+        min,
+        max: Math.max(min, max),
+        speed: Math.max(1, Number(speedRaw) || 1),
+        direction: "forward" as const,
+      };
+    });
+}
+
+type EnemyPatrolRow = {
+  row: number;
+  col: number;
+  movement: "horizontal" | "vertical";
+  min: number;
+  max: number;
+  speed: number;
+};
+
+function parseEnemyPatrolRows(raw: string): EnemyPatrolRow[] {
+  return raw
+    .split(/[;\n]/)
+    .map((token) => token.trim())
+    .filter(Boolean)
+    .map((token) => {
+      const [rowRaw, colRaw, movementRaw, minRaw, maxRaw, speedRaw] = token.split(",").map((value) => value.trim());
+      return {
+        row: Math.max(1, Number(rowRaw) || 1),
+        col: Math.max(1, Number(colRaw) || 1),
+        movement: movementRaw === "vertical" ? "vertical" : "horizontal",
+        min: Math.max(1, Number(minRaw) || 1),
+        max: Math.max(1, Number(maxRaw) || Math.max(1, Number(minRaw) || 1)),
+        speed: Math.max(1, Number(speedRaw) || 1),
+      };
+    });
+}
+
+function serializeEnemyPatrolRows(rows: EnemyPatrolRow[]): string {
+  return rows
+    .map((row) => [row.row, row.col, row.movement, row.min, row.max, row.speed].join(","))
+    .join(";");
+}
+
 function parseDifficulty(value: unknown): Difficulty {
   if (value === "easy" || value === "hard") {
     return value;
@@ -330,6 +436,7 @@ export function AdminDashboard() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [previewBand, setPreviewBand] = useState<AdaptiveBand>("standard");
 
   const [coreForm, setCoreForm] = useState<CoreFormState>(createDefaultCoreState());
   const [mcqLevels, setMcqLevels] = useState<MCQLevelForm[]>([createDefaultMCQLevel(1)]);
@@ -369,6 +476,22 @@ export function AdminDashboard() {
         timeBonusFormula: coreForm.timeBonusFormula,
         timeBonusMultiplier: Math.max(0, coreForm.timeBonusMultiplier),
       },
+      uiConfig: {
+        theme: "system" as const,
+        primaryColor: "#0f766e",
+        secondaryColor: "#f59e0b",
+        iconSet: "lucide",
+        layout: coreForm.smartboardEnabled ? "fullscreen" as const : "centered" as const,
+        showTimer: true,
+        showScore: true,
+        showProgress: true,
+        smartboard: {
+          enabled: coreForm.smartboardEnabled,
+          allowFullscreen: coreForm.smartboardFullscreen,
+          autoScaleBoard: coreForm.smartboardEnabled,
+          emphasizeControls: coreForm.smartboardEnabled,
+        },
+      },
       metadata: {
         author: coreForm.author.trim() || "Admin",
         createdAt: now,
@@ -381,6 +504,29 @@ export function AdminDashboard() {
         leaderboardEndpoint: `/api/leaderboard/${coreForm.gameId.trim()}`,
         scoreSubmitEndpoint: "/api/score",
       },
+      adaptiveConfig: coreForm.adaptiveEnabled
+        ? {
+          enabled: true,
+          supportThreshold: Math.min(0.95, Math.max(0.05, coreForm.adaptiveSupportThreshold)),
+          challengeThreshold: Math.min(0.99, Math.max(0.1, coreForm.adaptiveChallengeThreshold)),
+          timerAdjustmentSeconds: Math.max(0, Math.round(coreForm.adaptiveTimerAdjustmentSeconds)),
+          multiplierAdjustment: Math.max(0, coreForm.adaptiveMultiplierAdjustment),
+          maxTimerAdjustmentSeconds: 30,
+          minimumMultiplier: 0.75,
+          maximumMultiplier: 2,
+          adaptContent: true,
+          adaptTimer: true,
+          adaptScoring: true,
+          adaptPenalties: true,
+        }
+        : undefined,
+      aiConfig: coreForm.aiEnabled
+        ? {
+          enabled: true,
+          provider: coreForm.aiProvider,
+          fallbackToLocal: true,
+        }
+        : undefined,
     };
 
     if (coreForm.gameType === "MCQ") {
@@ -498,6 +644,7 @@ export function AdminDashboard() {
             bonusMultiplier: level.bonusMultiplier,
             board: makeBoard(level.rows, level.cols, blockageCells, taskCells),
             tasks: makeBoardTasks(level.rows, level.cols, taskCells),
+            enemies: parseEnemyPatrols(level.enemyPatrolsText, level.rows, level.cols),
           };
         }),
       };
@@ -513,9 +660,109 @@ export function AdminDashboard() {
         objective: level.objective,
         instruction: level.instruction,
         successText: level.successText,
+        checkpoints: splitLineList(level.checkpointsText),
       })),
     };
   }, [boardLevels, coreForm, customLevels, dragDropLevels, gridLevels, mcqLevels, wordLevels]);
+
+  const previewLevel = useMemo(() => {
+    const levels = Array.isArray(generatedConfig.levels) ? generatedConfig.levels : [];
+    return levels[0] as Record<string, unknown> | undefined;
+  }, [generatedConfig]);
+
+  const simulatedAdaptivePreview = useMemo(() => {
+    const baseTimer = Math.max(10, Math.round(coreForm.timerDuration));
+    const baseMultiplier = Math.max(0.1, coreForm.bonusMultiplier);
+    const timerDelta = !coreForm.adaptiveEnabled
+      ? 0
+      : previewBand === "support"
+        ? Math.max(0, Math.round(coreForm.adaptiveTimerAdjustmentSeconds))
+        : previewBand === "challenge"
+          ? -Math.max(0, Math.round(coreForm.adaptiveTimerAdjustmentSeconds))
+          : 0;
+    const multiplierDelta = !coreForm.adaptiveEnabled
+      ? 0
+      : previewBand === "support"
+        ? -Math.max(0, coreForm.adaptiveMultiplierAdjustment)
+        : previewBand === "challenge"
+          ? Math.max(0, coreForm.adaptiveMultiplierAdjustment)
+          : 0;
+
+    return {
+      band: previewBand,
+      timer: Math.max(10, baseTimer + timerDelta),
+      timerDelta,
+      multiplier: Math.max(0.1, Number((baseMultiplier + multiplierDelta).toFixed(2))),
+      multiplierDelta,
+      note:
+        previewBand === "support"
+          ? "Support mode adds time, softens pressure, and simplifies content."
+          : previewBand === "challenge"
+            ? "Challenge mode shortens time and raises complexity."
+            : "Balanced mode keeps the authored baseline.",
+    };
+  }, [coreForm, previewBand]);
+
+  const simulatedPreviewLevel = useMemo(() => {
+    if (!previewLevel) {
+      return undefined;
+    }
+
+    if ("items" in previewLevel) {
+      const items = [...((previewLevel.items as Array<{ id: string; label: string }>) ?? [])];
+      const targets = [...((previewLevel.targets as Array<{ id: string; label: string }>) ?? [])];
+
+      return {
+        ...previewLevel,
+        items: previewBand === "support" ? items.slice(0, Math.max(2, items.length - 1)) : items,
+        targets: previewBand === "challenge"
+          ? [...targets, { id: "decoy-preview", label: `${targets[0]?.label ?? "Extra"} decoy` }]
+          : targets,
+      };
+    }
+
+    if ("board" in previewLevel) {
+      const enemies = [...((previewLevel.enemies as Array<{ row: number; col: number }>) ?? [])];
+      return {
+        ...previewLevel,
+        enemies:
+          previewBand === "support"
+            ? enemies.slice(0, Math.max(0, enemies.length - 1))
+            : previewBand === "challenge" && enemies.length === 0
+              ? [{ row: 1, col: 1 }]
+              : enemies,
+      };
+    }
+
+    if ("objective" in previewLevel) {
+      const checkpoints = [...((previewLevel.checkpoints as string[]) ?? [])];
+      return {
+        ...previewLevel,
+        checkpoints:
+          previewBand === "challenge"
+            ? [...checkpoints, "Validate the result under pressure"]
+            : checkpoints.length > 0
+              ? checkpoints
+              : [String(previewLevel.objective ?? "")],
+      };
+    }
+
+    return previewLevel;
+  }, [previewBand, previewLevel]);
+
+  function updateBoardEnemyRows(levelIndex: number, updater: (rows: EnemyPatrolRow[]) => EnemyPatrolRow[]): void {
+    setBoardLevels((prev) => assignLevelNumbers(prev.map((item, index) => {
+      if (index !== levelIndex) {
+        return item;
+      }
+
+      const nextRows = updater(parseEnemyPatrolRows(item.enemyPatrolsText));
+      return {
+        ...item,
+        enemyPatrolsText: serializeEnemyPatrolRows(nextRows),
+      };
+    })));
+  }
 
   async function refreshOverview(): Promise<void> {
     setIsLoading(true);
@@ -584,6 +831,15 @@ export function AdminDashboard() {
             ? game.scoringConfig.timeBonusFormula
             : "none",
         timeBonusMultiplier: Number(game.scoringConfig?.timeBonusMultiplier) || defaultCore.timeBonusMultiplier,
+        adaptiveEnabled: Boolean(game.adaptiveConfig?.enabled),
+        adaptiveSupportThreshold: Number(game.adaptiveConfig?.supportThreshold) || defaultCore.adaptiveSupportThreshold,
+        adaptiveChallengeThreshold: Number(game.adaptiveConfig?.challengeThreshold) || defaultCore.adaptiveChallengeThreshold,
+        adaptiveTimerAdjustmentSeconds: Number(game.adaptiveConfig?.timerAdjustmentSeconds) || defaultCore.adaptiveTimerAdjustmentSeconds,
+        adaptiveMultiplierAdjustment: Number(game.adaptiveConfig?.multiplierAdjustment) || defaultCore.adaptiveMultiplierAdjustment,
+        aiEnabled: Boolean(game.aiConfig?.enabled),
+        aiProvider: game.aiConfig?.provider === "openai-compatible" ? "openai-compatible" : "local-template",
+        smartboardEnabled: Boolean(game.uiConfig?.smartboard?.enabled),
+        smartboardFullscreen: game.uiConfig?.smartboard?.allowFullscreen !== false,
       });
 
       const levels = Array.isArray(game.levels) ? game.levels : [];
@@ -699,6 +955,20 @@ export function AdminDashboard() {
                       )
                       .join(";")
                   : "",
+              enemyPatrolsText: Array.isArray(level.enemies)
+                ? level.enemies
+                    .map((enemy: any) =>
+                      [
+                        Number(enemy.row) + 1,
+                        Number(enemy.col) + 1,
+                        enemy.movement === "vertical" ? "vertical" : "horizontal",
+                        Number(enemy.min) + 1,
+                        Number(enemy.max) + 1,
+                        Number(enemy.speed) || 1,
+                      ].join(","),
+                    )
+                    .join(";")
+                : "",
               timeLimit: Number(level.timeLimit) || undefined,
               bonusMultiplier: Number(level.bonusMultiplier) || undefined,
             })),
@@ -715,6 +985,7 @@ export function AdminDashboard() {
               objective: String(level.objective ?? "Complete objective"),
               instruction: String(level.instruction ?? "Follow instructions"),
               successText: String(level.successText ?? "Great!"),
+              checkpointsText: Array.isArray(level.checkpoints) ? level.checkpoints.join("\n") : "Review the objective\nComplete the action\nConfirm the result",
               timeLimit: Number(level.timeLimit) || undefined,
               bonusMultiplier: Number(level.bonusMultiplier) || undefined,
             })),
@@ -956,6 +1227,7 @@ export function AdminDashboard() {
                   <option value="GRID">Number Grid Puzzle</option>
                   <option value="DRAG_DROP">Drag and Drop Match</option>
                   <option value="BOARD">Maze / Board Runner</option>
+                  <option value="CUSTOM">Custom Scenario</option>
                 </select>
               </label>
               <label className="flex flex-col gap-1.5">
@@ -1048,6 +1320,99 @@ export function AdminDashboard() {
                 <span className="admin-label">Time Bonus Multiplier</span>
                 <input type="number" className="admin-input" value={coreForm.timeBonusMultiplier}
                   onChange={(e) => setCoreForm((p) => ({ ...p, timeBonusMultiplier: Number(e.target.value) || 0 }))} />
+              </label>
+              <label className="flex items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-3 py-3">
+                <input
+                  type="checkbox"
+                  checked={coreForm.adaptiveEnabled}
+                  onChange={(e) => setCoreForm((p) => ({ ...p, adaptiveEnabled: e.target.checked }))}
+                />
+                <span className="text-sm font-medium text-ink">Enable adaptive runtime</span>
+              </label>
+              {coreForm.adaptiveEnabled ? (
+                <>
+                  <label className="flex flex-col gap-1.5">
+                    <span className="admin-label">Support Threshold</span>
+                    <input
+                      type="number"
+                      min={0.05}
+                      max={0.95}
+                      step={0.05}
+                      className="admin-input"
+                      value={coreForm.adaptiveSupportThreshold}
+                      onChange={(e) => setCoreForm((p) => ({ ...p, adaptiveSupportThreshold: Number(e.target.value) || 0.5 }))}
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1.5">
+                    <span className="admin-label">Challenge Threshold</span>
+                    <input
+                      type="number"
+                      min={0.1}
+                      max={0.99}
+                      step={0.05}
+                      className="admin-input"
+                      value={coreForm.adaptiveChallengeThreshold}
+                      onChange={(e) => setCoreForm((p) => ({ ...p, adaptiveChallengeThreshold: Number(e.target.value) || 0.85 }))}
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1.5">
+                    <span className="admin-label">Timer Adjustment (sec)</span>
+                    <input
+                      type="number"
+                      min={0}
+                      step={1}
+                      className="admin-input"
+                      value={coreForm.adaptiveTimerAdjustmentSeconds}
+                      onChange={(e) => setCoreForm((p) => ({ ...p, adaptiveTimerAdjustmentSeconds: Number(e.target.value) || 0 }))}
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1.5">
+                    <span className="admin-label">Multiplier Adjustment</span>
+                    <input
+                      type="number"
+                      min={0}
+                      step={0.05}
+                      className="admin-input"
+                      value={coreForm.adaptiveMultiplierAdjustment}
+                      onChange={(e) => setCoreForm((p) => ({ ...p, adaptiveMultiplierAdjustment: Number(e.target.value) || 0 }))}
+                    />
+                  </label>
+                </>
+              ) : null}
+              <label className="flex items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-3 py-3">
+                <input
+                  type="checkbox"
+                  checked={coreForm.aiEnabled}
+                  onChange={(e) => setCoreForm((p) => ({ ...p, aiEnabled: e.target.checked }))}
+                />
+                <span className="text-sm font-medium text-ink">Enable AI/procedural variants</span>
+              </label>
+              <label className="flex flex-col gap-1.5">
+                <span className="admin-label">AI Provider</span>
+                <select
+                  className="admin-input"
+                  value={coreForm.aiProvider}
+                  onChange={(e) => setCoreForm((p) => ({ ...p, aiProvider: e.target.value as "local-template" | "openai-compatible" }))}
+                >
+                  <option value="local-template">Local Template</option>
+                  <option value="openai-compatible">OpenAI Compatible</option>
+                </select>
+              </label>
+              <label className="flex items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-3 py-3">
+                <input
+                  type="checkbox"
+                  checked={coreForm.smartboardEnabled}
+                  onChange={(e) => setCoreForm((p) => ({ ...p, smartboardEnabled: e.target.checked }))}
+                />
+                <span className="text-sm font-medium text-ink">Enable smartboard mode</span>
+              </label>
+              <label className="flex items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-3 py-3 sm:col-span-2">
+                <input
+                  type="checkbox"
+                  checked={coreForm.smartboardFullscreen}
+                  onChange={(e) => setCoreForm((p) => ({ ...p, smartboardFullscreen: e.target.checked }))}
+                />
+                <span className="text-sm font-medium text-ink">Allow fullscreen toggle for large displays</span>
               </label>
             </div>
           </div>
@@ -1211,6 +1576,99 @@ export function AdminDashboard() {
                           <input className="admin-input" placeholder="2,4;3,4" value={level.tasksText}
                             onChange={(e) => setBoardLevels((prev) => assignLevelNumbers(prev.map((item, index) => index === levelIndex ? { ...item, tasksText: e.target.value } : item)))} />
                         </label>
+                        <div className="col-span-2 space-y-3 rounded-xl border border-dashed border-gray-200 bg-white p-4">
+                          <div className="flex items-center justify-between gap-3 flex-wrap">
+                            <span className="admin-label">Enemy Patrol Builder</span>
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              onClick={() => updateBoardEnemyRows(levelIndex, (rows) => ([
+                                ...rows,
+                                { row: 2, col: 2, movement: "horizontal", min: 1, max: Math.max(2, level.cols - 1), speed: 1 },
+                              ]))}
+                            >
+                              + Add Patrol
+                            </Button>
+                          </div>
+                          {parseEnemyPatrolRows(level.enemyPatrolsText).length > 0 ? (
+                            <div className="space-y-2">
+                              {parseEnemyPatrolRows(level.enemyPatrolsText).map((enemy, enemyIndex) => (
+                                <div key={`${enemyIndex}-${enemy.row}-${enemy.col}`} className="grid grid-cols-2 md:grid-cols-7 gap-2 items-end rounded-xl border border-gray-100 bg-gray-50 p-3">
+                                  <label className="flex flex-col gap-1">
+                                    <span className="admin-label">Row</span>
+                                    <input
+                                      type="number"
+                                      min={1}
+                                      className="admin-input"
+                                      value={enemy.row}
+                                      onChange={(e) => updateBoardEnemyRows(levelIndex, (rows) => rows.map((row, index) => index === enemyIndex ? { ...row, row: Number(e.target.value) || 1 } : row))}
+                                    />
+                                  </label>
+                                  <label className="flex flex-col gap-1">
+                                    <span className="admin-label">Col</span>
+                                    <input
+                                      type="number"
+                                      min={1}
+                                      className="admin-input"
+                                      value={enemy.col}
+                                      onChange={(e) => updateBoardEnemyRows(levelIndex, (rows) => rows.map((row, index) => index === enemyIndex ? { ...row, col: Number(e.target.value) || 1 } : row))}
+                                    />
+                                  </label>
+                                  <label className="flex flex-col gap-1">
+                                    <span className="admin-label">Move</span>
+                                    <select
+                                      className="admin-input"
+                                      value={enemy.movement}
+                                      onChange={(e) => updateBoardEnemyRows(levelIndex, (rows) => rows.map((row, index) => index === enemyIndex ? { ...row, movement: e.target.value as "horizontal" | "vertical" } : row))}
+                                    >
+                                      <option value="horizontal">Horizontal</option>
+                                      <option value="vertical">Vertical</option>
+                                    </select>
+                                  </label>
+                                  <label className="flex flex-col gap-1">
+                                    <span className="admin-label">Min</span>
+                                    <input
+                                      type="number"
+                                      min={1}
+                                      className="admin-input"
+                                      value={enemy.min}
+                                      onChange={(e) => updateBoardEnemyRows(levelIndex, (rows) => rows.map((row, index) => index === enemyIndex ? { ...row, min: Number(e.target.value) || 1 } : row))}
+                                    />
+                                  </label>
+                                  <label className="flex flex-col gap-1">
+                                    <span className="admin-label">Max</span>
+                                    <input
+                                      type="number"
+                                      min={1}
+                                      className="admin-input"
+                                      value={enemy.max}
+                                      onChange={(e) => updateBoardEnemyRows(levelIndex, (rows) => rows.map((row, index) => index === enemyIndex ? { ...row, max: Number(e.target.value) || 1 } : row))}
+                                    />
+                                  </label>
+                                  <label className="flex flex-col gap-1">
+                                    <span className="admin-label">Speed</span>
+                                    <input
+                                      type="number"
+                                      min={1}
+                                      className="admin-input"
+                                      value={enemy.speed}
+                                      onChange={(e) => updateBoardEnemyRows(levelIndex, (rows) => rows.map((row, index) => index === enemyIndex ? { ...row, speed: Number(e.target.value) || 1 } : row))}
+                                    />
+                                  </label>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => updateBoardEnemyRows(levelIndex, (rows) => rows.filter((_, index) => index !== enemyIndex))}
+                                  >
+                                    Remove
+                                  </Button>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="text-sm text-ink-muted">No enemies yet. Add a patrol to simulate moving threats.</p>
+                          )}
+                        </div>
                       </div>
                     </div>
                   ))
@@ -1241,10 +1699,163 @@ export function AdminDashboard() {
                           <input className="admin-input" value={level.successText}
                             onChange={(e) => setCustomLevels((prev) => assignLevelNumbers(prev.map((item, index) => index === levelIndex ? { ...item, successText: e.target.value } : item)))} />
                         </label>
+                        <label className="flex flex-col gap-1.5">
+                          <span className="admin-label">Checkpoints (one per line)</span>
+                          <textarea className="admin-input" value={level.checkpointsText}
+                            onChange={(e) => setCustomLevels((prev) => assignLevelNumbers(prev.map((item, index) => index === levelIndex ? { ...item, checkpointsText: e.target.value } : item)))} />
+                        </label>
                       </div>
                     </div>
                   ))
                 : null}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-card p-6">
+              <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
+                <div>
+                  <p className="eyebrow mb-1">Adaptive Simulation</p>
+                  <h3 className="font-display font-bold text-ink">Session Preview</h3>
+                </div>
+                <select
+                  className="admin-input max-w-[180px]"
+                  value={previewBand}
+                  onChange={(e) => setPreviewBand(e.target.value as AdaptiveBand)}
+                >
+                  <option value="support">Support</option>
+                  <option value="standard">Balanced</option>
+                  <option value="challenge">Challenge</option>
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-3 mb-4">
+                <div className="metric-block bg-gray-50">
+                  <span>Timer</span>
+                  <strong>{simulatedAdaptivePreview.timer}s</strong>
+                </div>
+                <div className="metric-block bg-gray-50">
+                  <span>Multiplier</span>
+                  <strong>{simulatedAdaptivePreview.multiplier}x</strong>
+                </div>
+              </div>
+              <p className="text-sm text-ink-muted">{simulatedAdaptivePreview.note}</p>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <span className="tag-chip">Timer delta {simulatedAdaptivePreview.timerDelta >= 0 ? "+" : ""}{simulatedAdaptivePreview.timerDelta}s</span>
+                <span className="tag-chip">Multiplier delta {simulatedAdaptivePreview.multiplierDelta >= 0 ? "+" : ""}{simulatedAdaptivePreview.multiplierDelta.toFixed(2)}x</span>
+                <span className="tag-chip">{coreForm.adaptiveEnabled ? "Adaptive runtime on" : "Adaptive runtime off"}</span>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-card p-6">
+              <p className="eyebrow mb-1">Gameplay Preview</p>
+              <h3 className="font-display font-bold text-ink mb-4">Level 1 Snapshot</h3>
+              {simulatedPreviewLevel ? (
+                <div className="space-y-4">
+                  {"questions" in simulatedPreviewLevel ? (
+                    <div className="space-y-2">
+                      <p className="text-sm font-semibold text-ink">{String((simulatedPreviewLevel.questions as Array<{ question: string }>)?.[0]?.question ?? "Question preview")}</p>
+                      <div className="space-y-2">
+                        {((simulatedPreviewLevel.questions as Array<{ options: Array<{ id: string; text: string }> }>)?.[0]?.options ?? []).map((option) => (
+                          <div key={option.id} className="option-card">
+                            <span>{option.id}</span>
+                            <span>{option.text}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+                  {"validWords" in simulatedPreviewLevel ? (
+                    <div className="space-y-3">
+                      <div className="letter-rack">
+                        {((simulatedPreviewLevel.availableLetters as string[]) ?? []).map((letter, index) => (
+                          <span key={`${letter}-${index}`} className="letter-tile">{letter}</span>
+                        ))}
+                      </div>
+                      <div className="word-bank">
+                        {((simulatedPreviewLevel.validWords as Array<{ word: string }>) ?? []).slice(0, 4).map((word) => (
+                          <span key={word.word} className="word-chip">{word.word}</span>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+                  {"solution" in simulatedPreviewLevel ? (
+                    <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${Number(simulatedPreviewLevel.gridSize) || 1}, minmax(0, 1fr))` }}>
+                      {Array.from({ length: Number(simulatedPreviewLevel.gridSize) || 0 }, (_, rowIndex) =>
+                        Array.from({ length: Number(simulatedPreviewLevel.gridSize) || 0 }, (_, colIndex) => {
+                          const clue = ((simulatedPreviewLevel.preFilledCells as Array<{ row: number; col: number; value: number }>) ?? [])
+                            .find((cell) => cell.row === rowIndex && cell.col === colIndex);
+                          return (
+                            <div key={`${rowIndex}-${colIndex}`} className={`grid-cell ${clue ? "is-locked" : ""}`.trim()}>
+                              <span className="grid-cell-value">{clue?.value ?? ""}</span>
+                            </div>
+                          );
+                        }),
+                      )}
+                    </div>
+                  ) : null}
+                  {"items" in simulatedPreviewLevel ? (
+                    <div className="dragdrop-layout">
+                      <div className="dragdrop-column">
+                        <h4>Items</h4>
+                        <div className="dragdrop-stack">
+                          {((simulatedPreviewLevel.items as Array<{ id: string; label: string }>) ?? []).map((item) => (
+                            <div key={item.id} className="drag-card">
+                              <span>{item.label}</span>
+                              <span className="tag-chip">item</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="dragdrop-column">
+                        <h4>Targets</h4>
+                        <div className="dragdrop-stack">
+                          {((simulatedPreviewLevel.targets as Array<{ id: string; label: string }>) ?? []).map((target) => (
+                            <div key={target.id} className="drop-zone">
+                              <div className="drop-zone-head">
+                                <span>{target.label}</span>
+                                <span className="tag-chip">{previewBand === "challenge" && target.id.startsWith("decoy-") ? "decoy" : "target"}</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
+                  {"board" in simulatedPreviewLevel ? (
+                    <div className="space-y-3">
+                      <div className="board-grid board-grid-smartboard" style={{ gridTemplateColumns: `repeat(${String((simulatedPreviewLevel.board as string[])[0] ?? "").length || 1}, minmax(0, 1fr))` }}>
+                        {((simulatedPreviewLevel.board as string[]) ?? []).flatMap((row, rowIndex) =>
+                          row.split("").map((tile, colIndex) => {
+                            const enemyHere = (((simulatedPreviewLevel.enemies as Array<{ row: number; col: number }>) ?? []).some((enemy) => enemy.row === rowIndex && enemy.col === colIndex));
+                            return (
+                              <div key={`${rowIndex}-${colIndex}`} className={`board-tile ${tile === "#" ? "is-wall" : ""} ${tile === "G" ? "is-goal" : ""} ${enemyHere ? "is-enemy" : ""}`.trim()}>
+                                <span>{enemyHere ? "E" : tile === "." ? "" : tile}</span>
+                              </div>
+                            );
+                          }),
+                        )}
+                      </div>
+                      <p className="text-sm text-ink-muted">{(((simulatedPreviewLevel.enemies as Array<unknown>) ?? []).length)} patrol enemy(s) configured.</p>
+                    </div>
+                  ) : null}
+                  {"objective" in simulatedPreviewLevel ? (
+                    <div className="space-y-3 rounded-xl border border-gray-100 bg-gray-50 p-4">
+                      <p className="text-sm font-semibold text-ink">{String(simulatedPreviewLevel.objective ?? "")}</p>
+                      <p className="text-sm text-ink-muted">{String(simulatedPreviewLevel.instruction ?? "")}</p>
+                      <div className="space-y-2">
+                        {((simulatedPreviewLevel.checkpoints as string[]) ?? []).map((checkpoint) => (
+                          <div key={checkpoint} className="mapping-row">
+                            <span>{checkpoint}</span>
+                            <span className="tag-chip">checkpoint</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              ) : (
+                <p className="text-sm text-ink-muted">Create a level to see a live gameplay preview.</p>
+              )}
             </div>
           </div>
 

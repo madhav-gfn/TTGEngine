@@ -65,4 +65,7 @@ export const runtimeConfig = {
   databasePath: resolveDatabasePath(),
   gamesRoot: resolveGamesRoot(),
   adminKey: (process.env.ADMIN_API_KEY ?? "").trim(),
+  aiApiKey: (process.env.AI_API_KEY ?? "").trim(),
+  aiBaseUrl: (process.env.AI_BASE_URL ?? "").trim(),
+  aiModel: (process.env.AI_MODEL ?? "").trim(),
 };

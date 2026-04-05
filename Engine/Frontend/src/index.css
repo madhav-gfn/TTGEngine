@@ -452,12 +452,32 @@
     @apply border-teal-500 shadow-glow-teal;
   }
 
+  .board-tile.is-enemy {
+    @apply bg-rose-100 border-rose-300 text-rose-700;
+  }
+
   .board-tile.is-cleared {
     @apply bg-green-50 border-green-300;
   }
 
+  .board-tile.is-smartboard {
+    font-size: clamp(0.95rem, 2.4vmin, 1.4rem);
+  }
+
   .board-meta, .board-controls {
     @apply flex gap-2 flex-wrap;
+  }
+
+  .board-grid-smartboard {
+    gap: 10px;
+  }
+
+  .board-controls-smartboard button {
+    @apply px-5 py-3 text-base font-bold;
+  }
+
+  .smartboard-shell .renderer-shell {
+    @apply p-6;
   }
 
   /* Admin table */

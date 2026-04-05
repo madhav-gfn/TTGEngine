@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from "react";
 import { useGameStore } from "@/store/gameStore";
 import type { GameAction, LevelResult } from "@/core/types";
 import { RendererFactory } from "@/renderers/RendererFactory";
@@ -29,13 +30,27 @@ export function GameContainer({
   dismissError,
 }: GameContainerProps) {
   const activeConfig = useGameStore((s) => s.activeConfig);
+  const sessionLevels = useGameStore((s) => s.sessionLevels);
+  const currentLevelRuntime = useGameStore((s) => s.currentLevelRuntime);
   const lifecycleState = useGameStore((s) => s.lifecycleState);
   const currentLevelIndex = useGameStore((s) => s.currentLevelIndex);
   const levelSummary = useGameStore((s) => s.levelSummary);
   const finalScore = useGameStore((s) => s.finalScore);
   const leaderboard = useGameStore((s) => s.leaderboard);
   const submissionResult = useGameStore((s) => s.submissionResult);
+  const adaptiveInsights = useGameStore((s) => s.adaptiveInsights);
   const error = useGameStore((s) => s.error);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const shellRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(Boolean(document.fullscreenElement));
+    };
+
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
+  }, []);
 
   /* ── Loading ── */
   if (lifecycleState === "LOADING") {
@@ -81,6 +96,7 @@ export function GameContainer({
         score={finalScore}
         leaderboard={leaderboard}
         submissionResult={submissionResult}
+        adaptiveInsights={adaptiveInsights}
         onReplay={replayGame}
         onBack={backToGames}
       />
@@ -99,13 +115,31 @@ export function GameContainer({
     );
   }
 
-  const currentLevel = activeConfig.levels[currentLevelIndex];
+  const currentLevel = sessionLevels[currentLevelIndex] ?? activeConfig.levels[currentLevelIndex];
   const isPaused = lifecycleState !== "PLAYING";
   const isReady = lifecycleState === "READY";
   const isPausedState = lifecycleState === "PAUSED";
+  const smartboardConfig = activeConfig.uiConfig.smartboard;
+
+  async function toggleFullscreen(): Promise<void> {
+    if (!smartboardConfig?.allowFullscreen || !shellRef.current) {
+      return;
+    }
+
+    if (document.fullscreenElement) {
+      await document.exitFullscreen();
+      return;
+    }
+
+    await shellRef.current.requestFullscreen();
+  }
 
   return (
-    <div className="space-y-4">
+    <div
+      ref={shellRef}
+      className={`space-y-4 ${smartboardConfig?.enabled ? "smartboard-shell" : ""}`}
+      data-smartboard={smartboardConfig?.enabled ? "true" : "false"}
+    >
       {/* ── Top HUD Bar ── */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-card px-5 py-3.5">
         <div className="flex items-center justify-between gap-4 flex-wrap">
@@ -125,6 +159,9 @@ export function GameContainer({
                 {activeConfig.gameType.replace("_", " ")}
               </p>
               <h2 className="font-display font-bold text-sm text-ink leading-tight">{activeConfig.title}</h2>
+              {currentLevelRuntime ? (
+                <p className="text-[11px] text-ink-faint mt-0.5">{currentLevelRuntime.summary}</p>
+              ) : null}
             </div>
           </div>
 
@@ -143,6 +180,12 @@ export function GameContainer({
             {(activeConfig.uiConfig?.showScore ?? true) ? <ScoreDisplay compact /> : null}
 
             <div className="h-6 w-px bg-gray-200" />
+
+            {smartboardConfig?.enabled && smartboardConfig.allowFullscreen ? (
+              <button type="button" className="btn-secondary btn-sm" onClick={() => void toggleFullscreen()}>
+                {isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
+              </button>
+            ) : null}
 
             {lifecycleState === "PLAYING" && (
               <button type="button" className="btn-secondary btn-sm" onClick={pauseGame}>
@@ -191,6 +234,7 @@ export function GameContainer({
               config={activeConfig}
               levelIndex={currentLevelIndex}
               level={currentLevel}
+              runtime={currentLevelRuntime}
               onAction={submitAction}
               onComplete={completeLevel}
               isPaused={true}
@@ -219,6 +263,7 @@ export function GameContainer({
               config={activeConfig}
               levelIndex={currentLevelIndex}
               level={currentLevel}
+              runtime={currentLevelRuntime}
               onAction={submitAction}
               onComplete={completeLevel}
               isPaused={true}
@@ -231,6 +276,7 @@ export function GameContainer({
           config={activeConfig}
           levelIndex={currentLevelIndex}
           level={currentLevel}
+          runtime={currentLevelRuntime}
           onAction={submitAction}
           onComplete={(result) => completeLevel(result)}
           isPaused={isPaused}

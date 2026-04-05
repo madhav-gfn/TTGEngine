@@ -1,4 +1,5 @@
 import type {
+  AdaptiveBand as SharedAdaptiveBand,
   CommandAdapter as SharedCommandAdapter,
   Difficulty as SharedDifficulty,
   GameSummary as SharedGameSummary,
@@ -44,13 +45,18 @@ export {
 
 export type {
   APIConfig,
+  AIConfig,
   AnyGameConfig,
+  AdaptiveBand,
+  AdaptiveConfig,
   BindingAction,
+  BoardEnemy,
   BoardLevelConfig,
   BoardLegendEntry,
   BoardTask,
   CommandOutcome,
   ConfigError,
+  CustomLevelConfig,
   DragDropLevelConfig,
   DragItem,
   DropTarget,
@@ -67,6 +73,7 @@ export type {
   Metadata,
   RuntimeGameConfig,
   ScoringConfig,
+  SmartboardConfig,
   ThemeMode,
   TimerConfig,
   UIConfig,
@@ -147,6 +154,29 @@ export interface FinalScore {
   totalScore: number;
   timeTaken: number;
   accuracy: number;
+}
+
+export interface AdaptiveLevelRuntime {
+  levelIndex: number;
+  levelNumber: number;
+  band: SharedAdaptiveBand;
+  timerDuration: number;
+  timerSecondsDelta: number;
+  multiplier: number;
+  multiplierDelta: number;
+  wrongPenaltyEnabled: boolean;
+  summary: string;
+}
+
+export interface AdaptiveInsight {
+  levelNumber: number;
+  bandApplied: SharedAdaptiveBand;
+  recommendedNextBand: SharedAdaptiveBand;
+  accuracy: number;
+  completed: boolean;
+  timerSecondsDelta: number;
+  multiplierDelta: number;
+  summary: string;
 }
 
 export interface ScoreState {
@@ -233,6 +263,7 @@ export interface GameRendererProps {
   config: GameConfig;
   levelIndex: number;
   level: SharedLevelConfig;
+  runtime?: AdaptiveLevelRuntime | null;
   onAction: (action: GameAction) => void;
   onComplete: (result: LevelResult) => void;
   isPaused: boolean;

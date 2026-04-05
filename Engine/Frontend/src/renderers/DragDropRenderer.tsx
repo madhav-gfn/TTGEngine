@@ -19,7 +19,7 @@ function buildShuffledLevel(level: DragDropLevelConfig): DragDropLevelConfig {
   };
 }
 
-export function DragDropRenderer({ config, level, levelIndex, onAction, onComplete, isPaused }: GameRendererProps) {
+export function DragDropRenderer({ config, level, levelIndex, runtime, onAction, onComplete, isPaused }: GameRendererProps) {
   const dragLevel = level as DragDropLevelConfig;
   const [shuffledLevel, setShuffledLevel] = useState<DragDropLevelConfig>(() => buildShuffledLevel(dragLevel));
   const [session, setSession] = useState<DragDropSession>(() =>
@@ -30,9 +30,19 @@ export function DragDropRenderer({ config, level, levelIndex, onAction, onComple
   useEffect(() => {
     const nextLevel = buildShuffledLevel(dragLevel);
     setShuffledLevel(nextLevel);
-    setSession(dragDropEngine.createSession({ level: nextLevel }));
-    setStatus("Drag items into targets or use keyboard pickup/drop.");
-  }, [config.gameId, dragLevel, levelIndex]);
+    const nextSession = dragDropEngine.createSession({ level: nextLevel });
+
+    if (runtime?.band === "support" && nextLevel.items[0]) {
+      nextSession.mapping[nextLevel.items[0].id] = nextLevel.correctMapping[nextLevel.items[0].id];
+    }
+
+    setSession(nextSession);
+    setStatus(runtime?.band === "challenge"
+      ? "Challenge mode active: no auto-guidance, watch for decoy targets."
+      : runtime?.band === "support"
+        ? "Support mode placed one item for you. Finish the rest."
+        : "Drag items into targets or use keyboard pickup/drop.");
+  }, [config.gameId, dragLevel, levelIndex, runtime?.band]);
 
   function setMapping(itemId: string, targetId: string): void {
     const target = shuffledLevel.targets.find((entry) => entry.id === targetId);
@@ -111,6 +121,7 @@ export function DragDropRenderer({ config, level, levelIndex, onAction, onComple
         </div>
         <span className="question-tag">{session.heldItemId ? `Holding ${session.heldItemId}` : "Hybrid input"}</span>
       </div>
+      {runtime ? <p className="status-line">{runtime.summary}</p> : null}
       <p className="status-line">{status}</p>
       <p className="status-line">Keyboard: arrow keys move focus, Enter picks up or drops, and the submit button finalizes the mapping.</p>
       <div className="dragdrop-layout">
@@ -143,7 +154,11 @@ export function DragDropRenderer({ config, level, levelIndex, onAction, onComple
                 disabled={isPaused}
               >
                 <span>{item.label}</span>
-                <span className="tag-chip">{session.mapping[item.id] ?? "unassigned"}</span>
+                <span className="tag-chip">
+                  {runtime?.band === "challenge"
+                    ? session.mapping[item.id] ? "mapped" : "hidden"
+                    : session.mapping[item.id] ?? "unassigned"}
+                </span>
               </button>
             ))}
           </div>

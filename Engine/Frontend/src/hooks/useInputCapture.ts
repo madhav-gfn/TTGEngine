@@ -1,14 +1,15 @@
 import { useEffect, useRef } from "react";
-import type { InteractionCommand, InteractionConfig } from "@/core/types";
+import { DEFAULT_INTERACTION_CONFIG, type InteractionCommand, type InteractionConfig } from "@/core/types";
 import { getCommandFromKeyboardEvent } from "@/core/interaction/InputCapture";
 
 export function useInputCapture(
   enabled: boolean,
-  interactionConfig: InteractionConfig,
+  interactionConfig: InteractionConfig | undefined,
   onCommand: (command: InteractionCommand) => void,
 ) {
   const containerRef = useRef<HTMLElement | null>(null);
   const onCommandRef = useRef(onCommand);
+  const safeInteractionConfig = interactionConfig ?? DEFAULT_INTERACTION_CONFIG;
 
   useEffect(() => {
     onCommandRef.current = onCommand;
@@ -21,7 +22,7 @@ export function useInputCapture(
     }
 
     const handleKeyDown = (event: KeyboardEvent) => {
-      const command = getCommandFromKeyboardEvent(event, interactionConfig);
+      const command = getCommandFromKeyboardEvent(event, safeInteractionConfig);
       if (!command) {
         return;
       }
@@ -32,7 +33,7 @@ export function useInputCapture(
 
     node.addEventListener("keydown", handleKeyDown);
 
-    if (interactionConfig.autoFocus) {
+    if (safeInteractionConfig.autoFocus) {
       requestAnimationFrame(() => {
         node.focus();
       });
@@ -41,7 +42,7 @@ export function useInputCapture(
     return () => {
       node.removeEventListener("keydown", handleKeyDown);
     };
-  }, [enabled, interactionConfig]);
+  }, [enabled, safeInteractionConfig]);
 
   return containerRef;
 }

@@ -65,6 +65,7 @@ export interface UIConfig {
   showTimer: boolean;
   showScore: boolean;
   showProgress: boolean;
+  smartboard?: SmartboardConfig;
 }
 
 export interface Metadata {
@@ -79,6 +80,40 @@ export interface Metadata {
 export interface APIConfig {
   leaderboardEndpoint: string;
   scoreSubmitEndpoint: string;
+}
+
+export type AdaptiveBand = "support" | "standard" | "challenge";
+
+export interface AdaptiveConfig {
+  enabled: boolean;
+  supportThreshold: number;
+  challengeThreshold: number;
+  timerAdjustmentSeconds: number;
+  multiplierAdjustment: number;
+  maxTimerAdjustmentSeconds: number;
+  minimumMultiplier: number;
+  maximumMultiplier: number;
+  adaptContent: boolean;
+  adaptTimer: boolean;
+  adaptScoring: boolean;
+  adaptPenalties: boolean;
+}
+
+export interface AIConfig {
+  enabled: boolean;
+  provider: "local-template" | "openai-compatible";
+  model?: string;
+  endpoint?: string;
+  prompt?: string;
+  fallbackToLocal: boolean;
+  seed?: string;
+}
+
+export interface SmartboardConfig {
+  enabled: boolean;
+  allowFullscreen: boolean;
+  autoScaleBoard: boolean;
+  emphasizeControls: boolean;
 }
 
 export interface BaseLevelConfig {
@@ -167,10 +202,31 @@ export interface BoardLegendEntry {
   variant?: "empty" | "wall" | "start" | "goal" | "task";
 }
 
+export interface BoardEnemy {
+  id: string;
+  row: number;
+  col: number;
+  movement: "horizontal" | "vertical";
+  min: number;
+  max: number;
+  direction?: "forward" | "reverse";
+  speed?: number;
+}
+
 export interface BoardLevelConfig extends BaseLevelConfig {
   board: string[];
   tasks?: BoardTask[];
   legend?: Record<string, BoardLegendEntry>;
+  enemies?: BoardEnemy[];
+  enemyCollisionPenalty?: number;
+}
+
+export interface CustomLevelConfig extends BaseLevelConfig {
+  name: string;
+  objective: string;
+  instruction: string;
+  successText: string;
+  checkpoints?: string[];
 }
 
 export type LevelConfig =
@@ -178,7 +234,8 @@ export type LevelConfig =
   | WordLevelConfig
   | MCQLevelConfig
   | DragDropLevelConfig
-  | BoardLevelConfig;
+  | BoardLevelConfig
+  | CustomLevelConfig;
 
 export interface InteractionConfig {
   inputMode: InputMode;
@@ -250,6 +307,8 @@ export interface GameConfigBase<TGameType extends GameType, TLevel extends Level
   uiConfig?: UIConfig;
   metadata?: Metadata;
   apiConfig?: APIConfig;
+  adaptiveConfig?: AdaptiveConfig;
+  aiConfig?: AIConfig;
 }
 
 export type GameConfigV1 =
@@ -257,7 +316,7 @@ export type GameConfigV1 =
   | GameConfigBase<GameType.WORD, WordLevelConfig>
   | GameConfigBase<GameType.MCQ, MCQLevelConfig>
   | GameConfigBase<GameType.DRAG_DROP, DragDropLevelConfig>
-  | GameConfigBase<GameType.CUSTOM, LevelConfig>;
+  | GameConfigBase<GameType.CUSTOM, CustomLevelConfig>;
 
 export type GameConfigV2 =
   | (GameConfigBase<GameType.BOARD, BoardLevelConfig> & { schemaVersion: 2; interactionConfig?: InteractionConfig })
@@ -265,7 +324,7 @@ export type GameConfigV2 =
   | (GameConfigBase<GameType.WORD, WordLevelConfig> & { schemaVersion: 2; interactionConfig?: InteractionConfig })
   | (GameConfigBase<GameType.MCQ, MCQLevelConfig> & { schemaVersion: 2; interactionConfig?: InteractionConfig })
   | (GameConfigBase<GameType.DRAG_DROP, DragDropLevelConfig> & { schemaVersion: 2; interactionConfig?: InteractionConfig })
-  | (GameConfigBase<GameType.CUSTOM, LevelConfig> & { schemaVersion: 2; interactionConfig?: InteractionConfig });
+  | (GameConfigBase<GameType.CUSTOM, CustomLevelConfig> & { schemaVersion: 2; interactionConfig?: InteractionConfig });
 
 export type AnyGameConfig = GameConfigV1 | GameConfigV2;
 
@@ -307,6 +366,12 @@ export const DEFAULT_UI_CONFIG: UIConfig = {
   showTimer: true,
   showScore: true,
   showProgress: true,
+  smartboard: {
+    enabled: false,
+    allowFullscreen: true,
+    autoScaleBoard: true,
+    emphasizeControls: false,
+  },
 };
 
 export const DEFAULT_INTERACTION_CONFIG: InteractionConfig = {
@@ -354,6 +419,14 @@ const UIConfigSchema = z
     showTimer: z.boolean().default(true),
     showScore: z.boolean().default(true),
     showProgress: z.boolean().default(true),
+    smartboard: z
+      .object({
+        enabled: z.boolean().default(false),
+        allowFullscreen: z.boolean().default(true),
+        autoScaleBoard: z.boolean().default(true),
+        emphasizeControls: z.boolean().default(false),
+      })
+      .optional(),
   })
   .optional();
 
@@ -372,6 +445,35 @@ const APIConfigSchema = z
   .object({
     leaderboardEndpoint: z.string().min(1),
     scoreSubmitEndpoint: z.string().min(1),
+  })
+  .optional();
+
+const AdaptiveConfigSchema = z
+  .object({
+    enabled: z.boolean().default(false),
+    supportThreshold: z.number().min(0).max(1).default(0.5),
+    challengeThreshold: z.number().min(0).max(1).default(0.85),
+    timerAdjustmentSeconds: z.number().int().min(0).max(120).default(10),
+    multiplierAdjustment: z.number().min(0).max(5).default(0.15),
+    maxTimerAdjustmentSeconds: z.number().int().min(0).max(180).default(30),
+    minimumMultiplier: z.number().min(0.1).max(100).default(0.75),
+    maximumMultiplier: z.number().min(0.1).max(100).default(2),
+    adaptContent: z.boolean().default(true),
+    adaptTimer: z.boolean().default(true),
+    adaptScoring: z.boolean().default(true),
+    adaptPenalties: z.boolean().default(true),
+  })
+  .optional();
+
+const AIConfigSchema = z
+  .object({
+    enabled: z.boolean().default(false),
+    provider: z.enum(["local-template", "openai-compatible"]).default("local-template"),
+    model: z.string().min(1).optional(),
+    endpoint: z.string().min(1).optional(),
+    prompt: z.string().min(1).optional(),
+    fallbackToLocal: z.boolean().default(true),
+    seed: z.string().min(1).optional(),
   })
   .optional();
 
@@ -468,6 +570,14 @@ const DragDropLevelSchema = BaseLevelSchema.extend({
   correctMapping: z.record(z.string()),
 });
 
+const CustomLevelSchema = BaseLevelSchema.extend({
+  name: z.string().min(1).max(80),
+  objective: z.string().min(1).max(300),
+  instruction: z.string().min(1).max(500),
+  successText: z.string().min(1).max(200),
+  checkpoints: z.array(z.string().min(1).max(120)).max(8).optional(),
+});
+
 const BoardTaskSchema = z.object({
   id: z.string().min(1),
   row: z.number().int().min(0),
@@ -481,10 +591,23 @@ const BoardLegendEntrySchema = z.object({
   variant: z.enum(["empty", "wall", "start", "goal", "task"]).optional(),
 });
 
+const BoardEnemySchema = z.object({
+  id: z.string().min(1),
+  row: z.number().int().min(0),
+  col: z.number().int().min(0),
+  movement: z.enum(["horizontal", "vertical"]),
+  min: z.number().int().min(0),
+  max: z.number().int().min(0),
+  direction: z.enum(["forward", "reverse"]).default("forward"),
+  speed: z.number().int().min(1).max(10).default(1),
+});
+
 const BoardLevelSchema = BaseLevelSchema.extend({
   board: z.array(z.string().min(1)).min(1),
   tasks: z.array(BoardTaskSchema).optional(),
   legend: z.record(BoardLegendEntrySchema).optional(),
+  enemies: z.array(BoardEnemySchema).optional(),
+  enemyCollisionPenalty: z.number().int().min(0).max(1000).optional(),
 }).superRefine((level, ctx) => {
   const width = level.board[0]?.length ?? 0;
   if (width === 0) {
@@ -545,6 +668,66 @@ const BoardLevelSchema = BaseLevelSchema.extend({
       });
     }
   });
+
+  level.enemies?.forEach((enemy, enemyIndex) => {
+    if (enemy.row >= level.board.length || enemy.col >= width) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Enemy coordinates must stay inside the board dimensions.",
+        path: ["enemies", enemyIndex],
+      });
+      return;
+    }
+
+    const tile = level.board[enemy.row]?.[enemy.col];
+    if (!tile || tile === "#") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Enemies must start on a walkable tile.",
+        path: ["enemies", enemyIndex],
+      });
+    }
+
+    if (enemy.min > enemy.max) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Enemy patrol min cannot exceed max.",
+        path: ["enemies", enemyIndex],
+      });
+    }
+
+    if (enemy.movement === "horizontal" && enemy.max >= width) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Horizontal enemy patrol range must fit the board width.",
+        path: ["enemies", enemyIndex, "max"],
+      });
+    }
+
+    if (enemy.movement === "vertical" && enemy.max >= level.board.length) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Vertical enemy patrol range must fit the board height.",
+        path: ["enemies", enemyIndex, "max"],
+      });
+    }
+
+    if (enemy.movement === "horizontal" && (enemy.col < enemy.min || enemy.col > enemy.max)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Horizontal enemy start column must stay inside its patrol range.",
+        path: ["enemies", enemyIndex, "col"],
+      });
+    }
+
+    if (enemy.movement === "vertical" && (enemy.row < enemy.min || enemy.row > enemy.max)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Vertical enemy start row must stay inside its patrol range.",
+        path: ["enemies", enemyIndex, "row"],
+      });
+    }
+  });
 });
 
 const BaseGameSchema = z.object({
@@ -559,6 +742,8 @@ const BaseGameSchema = z.object({
   uiConfig: UIConfigSchema,
   metadata: MetadataSchema,
   apiConfig: APIConfigSchema,
+  adaptiveConfig: AdaptiveConfigSchema,
+  aiConfig: AIConfigSchema,
 });
 
 function validateLevels(data: { gameType: string; levels: unknown[] }, ctx: z.RefinementCtx): void {
@@ -568,7 +753,7 @@ function validateLevels(data: { gameType: string; levels: unknown[] }, ctx: z.Re
     MCQ: MCQLevelSchema,
     DRAG_DROP: DragDropLevelSchema,
     BOARD: BoardLevelSchema,
-    CUSTOM: z.any(),
+    CUSTOM: CustomLevelSchema,
   } as const;
 
   const levelSchema = levelSchemaMap[data.gameType as keyof typeof levelSchemaMap];
@@ -651,6 +836,10 @@ export function normalizeGameConfig(config: AnyGameConfig): RuntimeGameConfig {
     uiConfig: {
       ...DEFAULT_UI_CONFIG,
       ...(config.uiConfig ?? {}),
+      smartboard: {
+        ...DEFAULT_UI_CONFIG.smartboard,
+        ...(config.uiConfig?.smartboard ?? {}),
+      },
     },
     interactionConfig: {
       ...DEFAULT_INTERACTION_CONFIG,
@@ -739,6 +928,10 @@ export function calculateMaxPossibleScore(config: RuntimeGameConfig): number {
       baseScore = Math.max(1, boardTaskCount) * config.scoringConfig.basePoints;
     }
 
+    if ("objective" in level) {
+      baseScore = Math.max(1, level.checkpoints?.length ?? 1) * config.scoringConfig.basePoints;
+    }
+
     return sum + Math.floor(baseScore * levelMultiplier + timeBonus);
   }, 0);
 }
@@ -765,6 +958,10 @@ export function calculateMinimumTimeMs(config: RuntimeGameConfig): number {
       const walkableCells = level.board.join("").split("").filter((tile) => tile !== "#").length;
       const taskCount = level.tasks?.length ?? level.board.join("").split("").filter((tile) => tile === "T").length;
       return sum + Math.max(3500, walkableCells * 120 + taskCount * 900);
+    }
+
+    if ("objective" in level) {
+      return sum + Math.max(2500, (level.checkpoints?.length ?? 1) * 1500);
     }
 
     return sum + 2000;

@@ -5,13 +5,12 @@ import { gameStateMachine } from "@/core/GameStateMachine";
 import { leaderboardConnector } from "@/core/LeaderboardConnector";
 import { scoreEngine } from "@/core/ScoreEngine";
 import { timerEngine } from "@/core/TimerEngine";
+import { adaptiveEngine } from "@/core/AdaptiveEngine";
 import type { EngineError, GameAction, GameConfig, GameState, LeaderboardQuery, LevelResult } from "@/core/types";
 import { EMPTY_TIMER_TICK } from "@/lib/constants";
+import { generateGameVariant } from "@/lib/gameVariants";
 import {
-  getLevelMultiplier,
-  getLevelTimerConfig,
   getOrCreateUserId,
-  isWrongPenaltyEnabledForLevel,
 } from "@/lib/utils";
 import { useGameStore } from "@/store/gameStore";
 import { useLeaderboardStore } from "@/store/leaderboardStore";
@@ -143,6 +142,15 @@ export function useGameLifecycle() {
     }
   }
 
+  function prepareAdaptiveLevel(config: GameConfig, levelIndex: number) {
+    const plan = adaptiveEngine.prepareLevel(config, levelIndex);
+    const store = useGameStore.getState();
+    store.setSessionLevelAt(levelIndex, plan.level);
+    store.setCurrentLevelRuntime(plan.runtime);
+    store.setAdaptiveBand(plan.runtime.band);
+    return plan;
+  }
+
   async function refreshLeaderboard(gameId?: string, options: LeaderboardQuery = {
     limit: 20,
     offset: 0,
@@ -174,16 +182,22 @@ export function useGameLifecycle() {
 
     try {
       transitionTo("LOADING");
-      const config = await gameRegistry.getGame(gameId);
+      const discoveredConfig = await gameRegistry.getGame(gameId);
 
-      if (!config) {
+      if (!discoveredConfig) {
         throw new Error(`Game '${gameId}' could not be found.`);
       }
 
+      const config = discoveredConfig.aiConfig?.enabled
+        ? await generateGameVariant(discoveredConfig.gameId, { band: "standard" }).catch(() => discoveredConfig)
+        : discoveredConfig;
+
+      adaptiveEngine.initialize(config);
       store.setActiveGame(gameId, config);
+      const firstPlan = prepareAdaptiveLevel(config, 0);
       scoreEngine.initialize(config.scoringConfig);
-      scoreEngine.startLevel(1, getLevelMultiplier(config, 0), {
-        wrongPenaltyEnabled: isWrongPenaltyEnabledForLevel(config, 0),
+      scoreEngine.startLevel(1, firstPlan.runtime.multiplier, {
+        wrongPenaltyEnabled: firstPlan.runtime.wrongPenaltyEnabled,
       });
       store.setScoreState(scoreEngine.getState());
       store.setTimerTick(EMPTY_TIMER_TICK);
@@ -220,11 +234,16 @@ export function useGameLifecycle() {
     finalizingRef.current = false;
 
     const levelNumber = store.currentLevelIndex + 1;
-    scoreEngine.startLevel(levelNumber, getLevelMultiplier(config, store.currentLevelIndex), {
-      wrongPenaltyEnabled: isWrongPenaltyEnabledForLevel(config, store.currentLevelIndex),
+    const levelPlan = prepareAdaptiveLevel(config, store.currentLevelIndex);
+    scoreEngine.startLevel(levelNumber, levelPlan.runtime.multiplier, {
+      wrongPenaltyEnabled: levelPlan.runtime.wrongPenaltyEnabled,
     });
     store.setScoreState(scoreEngine.getState());
-    timerEngine.start(getLevelTimerConfig(config, store.currentLevelIndex), levelNumber);
+    timerEngine.start({
+      ...config.timerConfig,
+      duration: levelPlan.runtime.timerDuration,
+      type: config.timerConfig.type,
+    }, levelNumber);
     eventBus.emit("game:start", { level: levelNumber });
     transitionTo("PLAYING");
   }
@@ -274,6 +293,8 @@ export function useGameLifecycle() {
         accuracy: finalScore.accuracy,
         difficulty: config.difficulty,
         levelBreakdown: finalScore.levelScores,
+        targetSkill: config.metadata?.targetSkill,
+        adaptiveInsights: store.adaptiveInsights,
       },
     };
 
@@ -331,8 +352,11 @@ export function useGameLifecycle() {
       timerEngine.getElapsed(),
       Math.ceil(timerEngine.getRemaining() / 1000),
     );
+    const insight = adaptiveEngine.recordLevelOutcome(levelNumber, result, levelScore);
 
     store.setLevelSummary(levelScore);
+    store.pushAdaptiveInsight(insight);
+    store.setAdaptiveBand(insight.recommendedNextBand);
     timerEngine.reset();
     eventBus.emit("level:completed", { level: levelNumber, result, score: levelScore });
 
@@ -369,18 +393,22 @@ export function useGameLifecycle() {
 
     resetLifecycleLocks();
     timerEngine.reset();
+    adaptiveEngine.initialize(config);
+    const gameId = store.activeGameId;
+    useGameStore.getState().setActiveGame(gameId, config);
+    const firstPlan = prepareAdaptiveLevel(config, 0);
     scoreEngine.initialize(config.scoringConfig);
-    scoreEngine.startLevel(1, getLevelMultiplier(config, 0), {
-      wrongPenaltyEnabled: isWrongPenaltyEnabledForLevel(config, 0),
+    scoreEngine.startLevel(1, firstPlan.runtime.multiplier, {
+      wrongPenaltyEnabled: firstPlan.runtime.wrongPenaltyEnabled,
     });
-    store.setCurrentLevelIndex(0);
-    store.setTimerTick(EMPTY_TIMER_TICK);
-    store.setScoreState(scoreEngine.getState());
-    store.setLevelSummary(null);
-    store.setFinalScore(null);
-    store.setLeaderboard([]);
-    store.setSubmissionResult(null);
-    store.setError(null);
+    useGameStore.getState().setCurrentLevelIndex(0);
+    useGameStore.getState().setTimerTick(EMPTY_TIMER_TICK);
+    useGameStore.getState().setScoreState(scoreEngine.getState());
+    useGameStore.getState().setLevelSummary(null);
+    useGameStore.getState().setFinalScore(null);
+    useGameStore.getState().setLeaderboard([]);
+    useGameStore.getState().setSubmissionResult(null);
+    useGameStore.getState().setError(null);
     transitionTo("READY");
   }
 

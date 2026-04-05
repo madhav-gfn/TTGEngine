@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { loadGameManifest, loadRawGameConfigById } from "../lib/gameConfigs.js";
+import { generateVariantForConfig } from "../lib/aiVariants.js";
 
 export const gamesRouter = Router();
 
@@ -22,4 +23,39 @@ gamesRouter.get("/:gameId", (req, res) => {
   }
 
   res.json(config);
+});
+
+gamesRouter.post("/:gameId/variant", async (req, res) => {
+  const config = loadRawGameConfigById(req.params.gameId);
+
+  if (!config) {
+    res.status(404).json({
+      success: false,
+      error: {
+        code: "GAME_NOT_FOUND",
+        message: `No JSON config exists for '${req.params.gameId}'.`,
+      },
+    });
+    return;
+  }
+
+  try {
+    const variant = await generateVariantForConfig(config, {
+      band: req.body?.band,
+      seed: typeof req.body?.seed === "string" ? req.body.seed : undefined,
+    });
+
+    res.json({
+      success: true,
+      data: variant,
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      error: {
+        code: "VARIANT_GENERATION_FAILED",
+        message: error instanceof Error ? error.message : "Failed to generate game variant.",
+      },
+    });
+  }
 });

@@ -28,6 +28,18 @@
           "col": 2,
           "label": "Task 2"
         }
+      ],
+      "enemies": [
+        {
+          "id": "enemy-1",
+          "row": 0,
+          "col": 2,
+          "movement": "horizontal",
+          "min": 1,
+          "max": 4,
+          "speed": 2,
+          "direction": "forward"
+        }
       ]
     },
     {
@@ -59,6 +71,18 @@
           "row": 3,
           "col": 3,
           "label": "Task 3"
+        }
+      ],
+      "enemies": [
+        {
+          "id": "enemy-1",
+          "row": 1,
+          "col": 3,
+          "movement": "horizontal",
+          "min": 1,
+          "max": 3,
+          "speed": 2,
+          "direction": "forward"
         }
       ]
     },
@@ -98,6 +122,28 @@
           "col": 4,
           "label": "Task 4"
         }
+      ],
+      "enemies": [
+        {
+          "id": "enemy-1",
+          "row": 3,
+          "col": 1,
+          "movement": "horizontal",
+          "min": 0,
+          "max": 5,
+          "speed": 1,
+          "direction": "forward"
+        },
+        {
+          "id": "enemy-2",
+          "row": 4,
+          "col": 6,
+          "movement": "vertical",
+          "min": 3,
+          "max": 5,
+          "speed": 2,
+          "direction": "forward"
+        }
       ]
     }
   ],
@@ -118,10 +164,26 @@
     "timeBonusFormula": "linear",
     "timeBonusMultiplier": 2
   },
+  "uiConfig": {
+    "theme": "system",
+    "primaryColor": "#0f766e",
+    "secondaryColor": "#f59e0b",
+    "iconSet": "lucide",
+    "layout": "fullscreen",
+    "showTimer": true,
+    "showScore": true,
+    "showProgress": true,
+    "smartboard": {
+      "enabled": true,
+      "allowFullscreen": true,
+      "autoScaleBoard": true,
+      "emphasizeControls": true
+    }
+  },
   "metadata": {
     "author": "TaPTaP Engine Team",
-    "createdAt": "2026-04-03T11:44:11.094Z",
-    "updatedAt": "2026-04-03T11:44:11.094Z",
+    "createdAt": "2026-04-05T11:51:42.166Z",
+    "updatedAt": "2026-04-05T11:51:42.166Z",
     "tags": [
       "movement",
       "board",
@@ -134,6 +196,25 @@
   "apiConfig": {
     "leaderboardEndpoint": "/api/leaderboard/maze-runner-v2",
     "scoreSubmitEndpoint": "/api/score"
+  },
+  "adaptiveConfig": {
+    "enabled": true,
+    "supportThreshold": 0.55,
+    "challengeThreshold": 0.9,
+    "timerAdjustmentSeconds": 12,
+    "multiplierAdjustment": 0.2,
+    "maxTimerAdjustmentSeconds": 30,
+    "minimumMultiplier": 0.75,
+    "maximumMultiplier": 2,
+    "adaptContent": true,
+    "adaptTimer": true,
+    "adaptScoring": true,
+    "adaptPenalties": true
+  },
+  "aiConfig": {
+    "enabled": true,
+    "provider": "local-template",
+    "fallbackToLocal": true
   },
   "schemaVersion": 2,
   "gameType": "BOARD"

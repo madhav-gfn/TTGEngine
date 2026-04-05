@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { FinalScore, GameConfig, LeaderboardEntry, LeaderboardQuery, SubmissionResult } from "@/core/types";
+import type { AdaptiveInsight, FinalScore, GameConfig, LeaderboardEntry, LeaderboardQuery, SubmissionResult } from "@/core/types";
 import { useLeaderboard } from "@/hooks/useLeaderboard";
 import { formatDuration } from "@/lib/utils";
 import { LeaderboardView } from "./LeaderboardView";
@@ -9,6 +9,7 @@ interface ResultsScreenProps {
   score: FinalScore;
   leaderboard: LeaderboardEntry[];
   submissionResult: SubmissionResult | null;
+  adaptiveInsights?: AdaptiveInsight[];
   onReplay: () => void;
   onBack: () => void;
 }
@@ -39,6 +40,7 @@ export function ResultsScreen({
   score,
   leaderboard,
   submissionResult,
+  adaptiveInsights = [],
   onReplay,
   onBack,
 }: ResultsScreenProps) {
@@ -192,6 +194,28 @@ export function ResultsScreen({
       </div>
 
       {/* ── Actions ── */}
+      {adaptiveInsights.length > 0 ? (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-card p-6">
+          <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
+            <h3 className="font-display font-bold text-ink">Adaptive Session</h3>
+            <span className="text-xs font-semibold uppercase tracking-widest text-ink-faint">
+              Skill: {config.metadata?.targetSkill ?? "General"}
+            </span>
+          </div>
+          <div className="space-y-2">
+            {adaptiveInsights.map((insight) => (
+              <div key={insight.levelNumber} className="flex items-center justify-between gap-3 px-4 py-3 rounded-xl border border-gray-100">
+                <div>
+                  <p className="text-sm font-semibold text-ink">Level {insight.levelNumber}</p>
+                  <p className="text-xs text-ink-muted">{insight.summary}</p>
+                </div>
+                <span className="text-xs font-semibold text-ink-faint">{Math.round(insight.accuracy * 100)}%</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
       <div className="flex items-center justify-center gap-4">
         <button type="button" className="btn-primary btn-lg" onClick={onReplay}>
           🔄 Play Again

@@ -28,4 +28,16 @@ describe("shared config validation and normalization", () => {
       }
     });
   });
+
+  it("preserves adaptive, smartboard, and AI settings on enhanced configs", () => {
+    const result = validateGameConfig(mazeRunner);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.adaptiveConfig?.enabled).toBe(true);
+      expect(result.data.aiConfig?.enabled).toBe(true);
+      expect(result.data.uiConfig.smartboard?.enabled).toBe(true);
+      const firstLevel = result.data.levels[0];
+      expect("board" in firstLevel && firstLevel.enemies?.length).toBeGreaterThan(0);
+    }
+  });
 });
